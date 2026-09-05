@@ -1,4 +1,4 @@
-const { Plugin, ItemView, WorkspaceLeaf, Notice, TFile } = require('obsidian');
+const { Plugin, ItemView, WorkspaceLeaf, Notice, TFile, MarkdownRenderer, Modal } = require('obsidian');
 
 const VIEW_TYPE_MINDMAP = 'cds-mindmap-view';
 
@@ -13,24 +13,70 @@ const BRANCH_COLORS = [
   '#f87171'  // Coral
 ];
 
+const PAPER_SIZES = {
+  Auto: { label: 'Adattivo (Mappa)', w: 0, h: 0, ratio: 0 },
+  A0: { label: 'A0 (841 × 1189 mm)', w: 841, h: 1189, ratio: 1189 / 841 },
+  A1: { label: 'A1 (594 × 841 mm)', w: 594, h: 841, ratio: 841 / 594 },
+  A2: { label: 'A2 (420 × 594 mm)', w: 420, h: 594, ratio: 594 / 420 },
+  A3: { label: 'A3 (297 × 420 mm)', w: 297, h: 420, ratio: 420 / 297 },
+  A4: { label: 'A4 (210 × 297 mm)', w: 210, h: 297, ratio: 297 / 210 },
+  A5: { label: 'A5 (148 × 210 mm)', w: 148, h: 210, ratio: 210 / 148 },
+  A6: { label: 'A6 (105 × 148 mm)', w: 105, h: 148, ratio: 148 / 105 }
+};
+
 // Session cache per le posizioni e layout personalizzati dei nodi per file
 const CUSTOM_POSITIONS_CACHE = new Map();
 
 // ==========================================================================
-// 1. MindmapEngine: Parser, Serializer, Filtro Dettaglio & Multi-Layout
+// 1. MindmapEngine: Parser, Serializer, Filtro Dettaglio, Rich MD & Multi-Layout
 // ==========================================================================
 
 class MindmapEngine {
-  /**
-   * Genera un ID deterministico stabile basato sul percorso gerarchico e testo
-   */
   static generateDeterministicId(parentPath, index, text) {
     const clean = (text || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10);
     return parentPath ? `${parentPath}_${index}_${clean}` : 'root';
   }
 
   /**
-   * Analizza Markdown e costruisce l'albero AST con supporto a direttive di layout e tabelle
+   * Renderizzatore veloce e leggero di Markdown all'interno dei nodi
+   */
+  static renderMiniMarkdown(text) {
+    if (!text) return '';
+    let res = text
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+      .replace(/\*(.*?)\*/g, '<i>$1</i>')
+      .replace(/==(.*?)==/g, '<mark class="cds-mm-mark">$1</mark>')
+      .replace(/`([^`]+)`/g, '<code class="cds-mm-code">$1</code>')
+      .replace(/\[\[(.*?)\|(.*?)\]\]/g, '<span class="cds-mm-wikilink" data-target="$1">🔗 $2</span>')
+      .replace(/\[\[(.*?)\]\]/g, '<span class="cds-mm-wikilink" data-target="$1">🔗 $1</span>')
+      .replace(/\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="cds-mm-ext-link">$1 ↗</a>');
+    return res;
+  }
+
+  /**
+   * Estrae immagini incorporate dal testo: ![[immagine.png]] o ![alt](url)
+   */
+  static extractImages(text) {
+    const images = [];
+    if (!text) return images;
+
+    const wikiImgRegex = /!\[\[([^\]]+\.(?:png|jpg|jpeg|gif|webp|svg))\]\]/gi;
+    let m;
+    while ((m = wikiImgRegex.exec(text)) !== null) {
+      images.push({ type: 'vault', path: m[1].trim() });
+    }
+
+    const mdImgRegex = /!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/gi;
+    while ((m = mdImgRegex.exec(text)) !== null) {
+      images.push({ type: 'web', path: m[2].trim(), alt: m[1] });
+    }
+
+    return images;
+  }
+
+  /**
+   * Analizza Markdown e costruisce l'albero AST con numeri di riga e supporto multimediale
    */
   static parseMarkdown(mdText, fallbackTitle = 'Mappa Concettuale', filePath = '') {
     if (!mdText || !mdText.trim()) {
@@ -42,15 +88,20 @@ class MindmapEngine {
         children: [],
         collapsed: false,
         isRoot: true,
+        sourceLine: 0,
         layout: 'radial'
       };
     }
 
     let content = mdText;
     let frontmatter = null;
+    let lineOffset = 0;
+
     const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
     if (fmMatch) {
       frontmatter = fmMatch[1];
+      const fmLines = fmMatch[0].split(/\r?\n/).length - 1;
+      lineOffset = fmLines;
       content = content.slice(fmMatch[0].length);
     }
 
@@ -64,6 +115,7 @@ class MindmapEngine {
       collapsed: false,
       isRoot: true,
       frontmatter,
+      sourceLine: lineOffset,
       layout: 'radial'
     };
 
@@ -71,22 +123,22 @@ class MindmapEngine {
     let pathStack = ['root'];
     let foundFirstHeading = false;
 
-    // Recupera cache delle posizioni manuali per questo file se presente
     const fileCache = filePath ? CUSTOM_POSITIONS_CACHE.get(filePath) || {} : {};
 
     for (let i = 0; i < lines.length; i++) {
+      const lineNum = lineOffset + i;
       const line = lines[i];
       const trimmed = line.trim();
       if (!trimmed) continue;
 
-      // Direttiva di layout: <!-- layout: table --> oppure <!-- mm: layout=table -->
+      // Direttiva layout: <!-- layout: table -->
       if (trimmed.includes('layout: table') || trimmed.includes('layout:table')) {
         const lastNode = currentParentStack[currentParentStack.length - 1];
         if (lastNode) lastNode.layout = 'table';
         continue;
       }
 
-      // Link PDF: [[Documento.pdf#page=5&rect=x,y,w,h|Testo]]
+      // Link PDF
       let pdfLink = null;
       const pdfMatch = trimmed.match(/\[\[([^#\]]+\.pdf)(?:#page=(\d+)(?:&rect=([0-9.,]+))?)?(?:\|([^\]]+))?\]\]/i);
       if (pdfMatch) {
@@ -98,7 +150,10 @@ class MindmapEngine {
         };
       }
 
-      // Check Heading (# H1, ## H2, ### H3...)
+      // Immagini
+      const images = MindmapEngine.extractImages(trimmed);
+
+      // Check Heading (# H1..H6)
       const hMatch = line.match(/^(#{1,6})\s+(.*)$/);
       if (hMatch) {
         const level = hMatch[1].length;
@@ -106,6 +161,7 @@ class MindmapEngine {
 
         if (!foundFirstHeading && level === 1) {
           rootNode.text = text;
+          rootNode.sourceLine = lineNum;
           foundFirstHeading = true;
           currentParentStack = [rootNode];
           pathStack = ['root'];
@@ -131,11 +187,12 @@ class MindmapEngine {
           children: [],
           collapsed: false,
           pdfLink,
+          images,
           bodyText: '',
+          sourceLine: lineNum,
           layout: 'default'
         };
 
-        // Ripristina posizione manuale se memorizzata
         if (fileCache[nodeId]) {
           node.customX = fileCache[nodeId].x;
           node.customY = fileCache[nodeId].y;
@@ -152,6 +209,7 @@ class MindmapEngine {
       const listMatch = line.match(/^(\s*)(?:[-*+]|\d+\.)\s+(.*)$/);
       if (listMatch) {
         const indent = listMatch[1].replace(/\t/g, '  ').length;
+
         let baseHeadingDepth = 1;
         for (let s = currentParentStack.length - 1; s >= 0; s--) {
           if (currentParentStack[s].type === 'heading') {
@@ -180,7 +238,9 @@ class MindmapEngine {
           children: [],
           collapsed: false,
           pdfLink,
+          images,
           bodyText: '',
+          sourceLine: lineNum,
           layout: 'default'
         };
 
@@ -196,7 +256,7 @@ class MindmapEngine {
         continue;
       }
 
-      // Check Tabella Markdown nativa: | Col 1 | Col 2 |
+      // Check Tabella Markdown
       if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
         const parent = currentParentStack[currentParentStack.length - 1];
         if (parent && !parent.isRoot) {
@@ -206,7 +266,7 @@ class MindmapEngine {
           }
           const cells = trimmed.split('|').slice(1, -1).map(c => c.trim());
           if (cells.every(c => /^[-:]+$/.test(c))) {
-            // Riga di separazione, salta
+            // Sep row
           } else if (parent.tableData.headers.length === 0) {
             parent.tableData.headers = cells;
           } else {
@@ -216,11 +276,14 @@ class MindmapEngine {
         }
       }
 
-      // Testo normale di paragrafo (approfondimento del nodo genitore)
+      // Testo normale di paragrafo
       if (currentParentStack.length > 1) {
         const lastNode = currentParentStack[currentParentStack.length - 1];
         if (lastNode && !lastNode.isRoot) {
           lastNode.bodyText = (lastNode.bodyText ? lastNode.bodyText + '\n' : '') + trimmed;
+          if (images.length) {
+            lastNode.images = (lastNode.images || []).concat(images);
+          }
         }
       }
     }
@@ -228,10 +291,6 @@ class MindmapEngine {
     return rootNode;
   }
 
-  /**
-   * Filtra l'albero in base al livello di dettaglio richiesto dall'utente
-   * @param {'titles' | 'keypoints' | 'full'} level
-   */
   static filterTreeByDetail(node, level = 'keypoints') {
     const clone = {
       ...node,
@@ -241,9 +300,8 @@ class MindmapEngine {
     if (node.children && node.children.length) {
       for (const child of node.children) {
         if (level === 'titles' && child.type !== 'heading') {
-          continue; // Mostra solo i titoli H1..H6
+          continue;
         }
-        // In 'keypoints' o 'full' include anche i punti elenco
         clone.children.push(MindmapEngine.filterTreeByDetail(child, level));
       }
     }
@@ -251,9 +309,6 @@ class MindmapEngine {
     return clone;
   }
 
-  /**
-   * Converte l'albero in Markdown pulito preservando gerarchia, tabelle e annotazioni
-   */
   static serializeToMarkdown(rootNode, originalFm = '') {
     const lines = [];
 
@@ -293,7 +348,6 @@ class MindmapEngine {
           lines.push(`${indent}- ${nodeText}`);
         }
 
-        // Se il nodo è configurato come tabella
         if (child.layout === 'table') {
           lines.push('<!-- layout: table -->');
           if (child.tableData && child.tableData.headers && child.tableData.headers.length) {
@@ -310,7 +364,6 @@ class MindmapEngine {
         }
         lines.push('');
 
-        // Se non è tabella serializzata via righe, visita i figli
         if (child.children && child.children.length) {
           walk(child, depth + 1);
         }
@@ -321,35 +374,38 @@ class MindmapEngine {
     return lines.join('\n');
   }
 
-  /**
-   * Calcola le dimensioni di ogni nodo in base al testo, al dettaglio e al layout
-   */
   static measureNode(node, detailLevel = 'keypoints') {
     const text = node.text || '';
-    const lines = text.split('\n');
+    const cleanText = text.replace(/\[\[.*?\]\]/g, 'Link').replace(/\*\*|==|\*|`/g, '');
+    const lines = cleanText.split('\n');
     const maxLineLen = lines.reduce((max, l) => Math.max(max, l.length), 0);
 
-    let w = Math.max(120, Math.min(320, maxLineLen * 8.8 + 36));
-    let h = Math.max(42, lines.length * 20 + 18);
+    let w = Math.max(130, Math.min(340, maxLineLen * 9.0 + 40));
+    let h = Math.max(46, lines.length * 22 + 20);
+
+    if (node.images && node.images.length) {
+      w = Math.max(w, 240);
+      h += 110; // Spazio miniatura
+    }
 
     if (node.layout === 'table') {
-      w = Math.max(w, 360);
+      w = Math.max(w, 380);
       const rowCount = (node.tableData && node.tableData.rows) ? node.tableData.rows.length : (node.children ? node.children.length : 1);
-      h = Math.max(h, 90 + rowCount * 32);
+      h = Math.max(h, 95 + rowCount * 34);
     } else {
       if (detailLevel === 'full' && node.bodyText) {
-        w = Math.max(w, 240);
-        h += Math.min(120, node.bodyText.length * 0.5 + 24);
+        w = Math.max(w, 260);
+        h += Math.min(130, node.bodyText.length * 0.5 + 26);
       }
       if (node.pdfLink) {
         h += 24;
-        w = Math.max(w, 170);
+        w = Math.max(w, 180);
       }
     }
 
     if (node.isRoot) {
-      w = Math.max(160, maxLineLen * 10.5 + 50);
-      h = Math.max(56, lines.length * 24 + 26);
+      w = Math.max(220, maxLineLen * 11 + 60);
+      h = Math.max(68, lines.length * 26 + 32);
     }
 
     node.width = w;
@@ -362,9 +418,6 @@ class MindmapEngine {
     }
   }
 
-  /**
-   * Calcola l'altezza / ampiezza di un sotto-albero
-   */
   static computeSubtreeHeight(node, verticalGap = 18) {
     if (!node.children || !node.children.length || node.collapsed || node.layout === 'table') {
       node.subtreeHeight = node.height + verticalGap;
@@ -379,14 +432,14 @@ class MindmapEngine {
   }
 
   // ==========================================================================
-  // LAYOUT 1: RADIALE 360° (Organica a raggiera attorno al titolo principale)
+  // LAYOUT 1: RADIALE 360°
   // ==========================================================================
   static computeRadialLayout(rootNode, options = {}) {
     const detailLevel = options.detailLevel || 'keypoints';
     MindmapEngine.measureNode(rootNode, detailLevel);
 
-    const cx = options.cx || 1400;
-    const cy = options.cy || 1100;
+    const cx = options.cx || 1500;
+    const cy = options.cy || 1200;
 
     rootNode.x = cx - (rootNode.width / 2);
     rootNode.y = cy - (rootNode.height / 2);
@@ -400,9 +453,8 @@ class MindmapEngine {
     const N = chapters.length;
     if (N === 0) return { nodes: renderedNodes, paths: branchPaths, root: rootNode };
 
-    // Raggi ellittici base
-    const baseRx = 380;
-    const baseRy = 280;
+    const baseRx = 400;
+    const baseRy = 300;
 
     for (let i = 0; i < N; i++) {
       const chap = chapters[i];
@@ -411,19 +463,17 @@ class MindmapEngine {
 
       MindmapEngine.computeSubtreeHeight(chap, 20);
 
-      // Angolo in senso orario partendo dall'alto a destra (-pi/3)
       const angle = -Math.PI / 3 + (2 * Math.PI * i / N);
       const isRight = Math.cos(angle) >= 0;
       chap.direction = isRight ? 'right' : 'left';
 
-      // Posizione capitolo (rispetta spostamento manuale se presente)
       if (chap.customX !== undefined && chap.customY !== undefined) {
         chap.x = chap.customX;
         chap.y = chap.customY;
       } else {
-        const extraR = Math.min(200, (chap.subtreeHeight || 0) * 0.2);
+        const extraR = Math.min(220, (chap.subtreeHeight || 0) * 0.22);
         const rx = baseRx + extraR;
-        const ry = baseRy + extraR * 0.7;
+        const ry = baseRy + extraR * 0.75;
 
         chap.x = cx + rx * Math.cos(angle) - (isRight ? 0 : chap.width);
         chap.y = cy + ry * Math.sin(angle) - (chap.height / 2);
@@ -431,7 +481,6 @@ class MindmapEngine {
 
       renderedNodes.push(chap);
 
-      // Curva Bezier dal centro al capitolo
       const startX = isRight ? rootNode.x + rootNode.width : rootNode.x;
       const startY = rootNode.y + (rootNode.height / 2);
       const targetX = isRight ? chap.x : chap.x + chap.width;
@@ -445,9 +494,8 @@ class MindmapEngine {
         toId: chap.id
       });
 
-      // Se il capitolo non è in modalità tabella, dirama i sotto-nodi verso l'esterno
       if (chap.layout !== 'table') {
-        MindmapEngine.positionSubChildren(chap, color, chap.direction, 75, renderedNodes, branchPaths);
+        MindmapEngine.positionSubChildren(chap, color, chap.direction, 80, renderedNodes, branchPaths);
       }
     }
 
@@ -455,10 +503,10 @@ class MindmapEngine {
   }
 
   // ==========================================================================
-  // LAYOUT 2: MAPPA BILATERALE (Sinistra e Destra)
+  // LAYOUT 2: BILATERALE
   // ==========================================================================
   static computeBilateralLayout(rootNode, options = {}) {
-    const horizontalGap = options.horizontalGap || 75;
+    const horizontalGap = options.horizontalGap || 80;
     const verticalGap = options.verticalGap || 18;
     const detailLevel = options.detailLevel || 'keypoints';
 
@@ -468,16 +516,11 @@ class MindmapEngine {
     const rightChildren = [];
     const leftChildren = [];
 
-    // Distribuzione bilanciata destra/sinistra nel naturale ordine di lettura
     for (let i = 0; i < children.length; i++) {
-      if (children[i].manualSide === 'left') {
-        leftChildren.push(children[i]);
-      } else if (children[i].manualSide === 'right') {
-        rightChildren.push(children[i]);
-      } else {
-        if (i % 2 === 0) rightChildren.push(children[i]);
-        else leftChildren.push(children[i]);
-      }
+      if (children[i].manualSide === 'left') leftChildren.push(children[i]);
+      else if (children[i].manualSide === 'right') rightChildren.push(children[i]);
+      else if (i % 2 === 0) rightChildren.push(children[i]);
+      else leftChildren.push(children[i]);
     }
 
     let rightHeight = 0;
@@ -487,15 +530,15 @@ class MindmapEngine {
 
     const maxSideHeight = Math.max(rightHeight, leftHeight, 400);
 
-    rootNode.x = 1000;
-    rootNode.y = Math.max(280, maxSideHeight / 2);
+    rootNode.x = 1100;
+    rootNode.y = Math.max(300, maxSideHeight / 2);
     rootNode.color = '#38bdf8';
     rootNode.direction = 'center';
 
     const renderedNodes = [rootNode];
     const branchPaths = [];
 
-    // 1. Ramo Destro
+    // Ramo Destro
     let curY = rootNode.y + (rootNode.height / 2) - (rightHeight / 2);
     for (let i = 0; i < rightChildren.length; i++) {
       const child = rightChildren[i];
@@ -532,7 +575,7 @@ class MindmapEngine {
       }
     }
 
-    // 2. Ramo Sinistro
+    // Ramo Sinistro
     curY = rootNode.y + (rootNode.height / 2) - (leftHeight / 2);
     for (let i = 0; i < leftChildren.length; i++) {
       const child = leftChildren[i];
@@ -573,10 +616,10 @@ class MindmapEngine {
   }
 
   // ==========================================================================
-  // LAYOUT 3: STRUTTURA AD ALBERO A DESTRA (Orizzontale compatta)
+  // LAYOUT 3: AD ALBERO A DESTRA
   // ==========================================================================
   static computeRightLayout(rootNode, options = {}) {
-    const horizontalGap = options.horizontalGap || 75;
+    const horizontalGap = options.horizontalGap || 80;
     const verticalGap = options.verticalGap || 18;
     const detailLevel = options.detailLevel || 'keypoints';
 
@@ -584,7 +627,7 @@ class MindmapEngine {
     MindmapEngine.computeSubtreeHeight(rootNode, verticalGap);
 
     rootNode.x = 90;
-    rootNode.y = Math.max(220, (rootNode.subtreeHeight - rootNode.height) / 2);
+    rootNode.y = Math.max(240, (rootNode.subtreeHeight - rootNode.height) / 2);
     rootNode.color = '#38bdf8';
     rootNode.direction = 'right';
 
@@ -695,18 +738,339 @@ class MindmapEngine {
 }
 
 // ==========================================================================
-// 2. MindmapCanvas: Controller con Spostamento Libero e Floating Bar
+// 2. MindmapExportModal: Anteprima Live ed Esportazione A0 - A6
+// ==========================================================================
+
+class MindmapExportModal extends Modal {
+  constructor(app, canvas) {
+    super(app);
+    this.canvas = canvas;
+    this.format = 'png'; // 'png' | 'jpg' | 'pdf' | 'svg'
+    this.paperSize = 'Auto'; // 'Auto', 'A0', 'A1', 'A2', 'A3', 'A4', 'A5', 'A6'
+    this.orientation = 'landscape'; // 'landscape' | 'portrait'
+    this.bgStyle = 'dark'; // 'dark' | 'light' | 'transparent'
+    this.qualityDpi = 2; // 1x, 2x, 4x
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass('cds-mm-export-modal');
+
+    contentEl.createEl('h2', { text: '🎨 Esportazione Mappa Concettuale (Anteprima HD)', cls: 'cds-mm-export-title' });
+
+    const layoutWrap = contentEl.createDiv({ cls: 'cds-mm-export-layout' });
+
+    // Colonna sinistra: Opzioni
+    const sidebar = layoutWrap.createDiv({ cls: 'cds-mm-export-sidebar' });
+
+    // 1. Formato File
+    sidebar.createEl('label', { text: 'Formato File:', cls: 'cds-mm-export-label' });
+    const fmtSelect = sidebar.createEl('select', { cls: 'cds-mm-export-select' });
+    ['png', 'jpg', 'pdf', 'svg'].forEach(f => {
+      const opt = fmtSelect.createEl('option', { value: f, text: f.toUpperCase() });
+      if (f === this.format) opt.selected = true;
+    });
+    fmtSelect.onchange = () => {
+      this.format = fmtSelect.value;
+      this.updatePreview();
+    };
+
+    // 2. Formato Carta (da A0 ad A6)
+    sidebar.createEl('label', { text: 'Formato Carta (ISO 216):', cls: 'cds-mm-export-label' });
+    const paperSelect = sidebar.createEl('select', { cls: 'cds-mm-export-select' });
+    Object.keys(PAPER_SIZES).forEach(k => {
+      const opt = paperSelect.createEl('option', { value: k, text: PAPER_SIZES[k].label });
+      if (k === this.paperSize) opt.selected = true;
+    });
+    paperSelect.onchange = () => {
+      this.paperSize = paperSelect.value;
+      this.updatePreview();
+    };
+
+    // 3. Orientamento
+    sidebar.createEl('label', { text: 'Orientamento Pagina:', cls: 'cds-mm-export-label' });
+    const orientSelect = sidebar.createEl('select', { cls: 'cds-mm-export-select' });
+    orientSelect.createEl('option', { value: 'landscape', text: 'Orizzontale (Landscape)' });
+    orientSelect.createEl('option', { value: 'portrait', text: 'Verticale (Portrait)' });
+    orientSelect.value = this.orientation;
+    orientSelect.onchange = () => {
+      this.orientation = orientSelect.value;
+      this.updatePreview();
+    };
+
+    // 4. Sfondo
+    sidebar.createEl('label', { text: 'Colore Sfondo:', cls: 'cds-mm-export-label' });
+    const bgSelect = sidebar.createEl('select', { cls: 'cds-mm-export-select' });
+    bgSelect.createEl('option', { value: 'dark', text: 'Scuro Grafite (#0d1117)' });
+    bgSelect.createEl('option', { value: 'light', text: 'Chiaro Carta (#ffffff)' });
+    bgSelect.createEl('option', { value: 'transparent', text: 'Trasparente (PNG/SVG)' });
+    bgSelect.value = this.bgStyle;
+    bgSelect.onchange = () => {
+      this.bgStyle = bgSelect.value;
+      this.updatePreview();
+    };
+
+    // 5. Risoluzione
+    sidebar.createEl('label', { text: 'Risoluzione di Stampa:', cls: 'cds-mm-export-label' });
+    const dpiSelect = sidebar.createEl('select', { cls: 'cds-mm-export-select' });
+    dpiSelect.createEl('option', { value: '1', text: 'Standard Schermo (1x - 72 DPI)' });
+    dpiSelect.createEl('option', { value: '2', text: 'Alta Definizione (2x - 150 DPI)' });
+    dpiSelect.createEl('option', { value: '4', text: 'Stampa Tipografica (4x - 300 DPI)' });
+    dpiSelect.value = String(this.qualityDpi);
+    dpiSelect.onchange = () => {
+      this.qualityDpi = parseInt(dpiSelect.value, 10);
+      this.updatePreview();
+    };
+
+    // Pulsante Download
+    const bDownload = sidebar.createEl('button', { cls: 'cds-mm-btn-primary', text: '💾 Esporta e Scarica' });
+    bDownload.onclick = () => this.doExport();
+
+    // Colonna destra: Box Anteprima
+    this.previewBox = layoutWrap.createDiv({ cls: 'cds-mm-export-preview-box' });
+    this.previewCanvas = this.previewBox.createEl('canvas', { cls: 'cds-mm-export-canvas-preview' });
+
+    this.updatePreview();
+  }
+
+  updatePreview() {
+    const nodes = this.canvas.renderedNodes || [];
+    if (!nodes.length) return;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of nodes) {
+      if (n.x < minX) minX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.x + n.width > maxX) maxX = n.x + n.width;
+      if (n.y + n.height > maxY) maxY = n.y + n.height;
+    }
+
+    const padding = 60;
+    const contentW = (maxX - minX) + padding * 2;
+    const contentH = (maxY - minY) + padding * 2;
+
+    let targetW = contentW;
+    let targetH = contentH;
+
+    if (this.paperSize !== 'Auto' && PAPER_SIZES[this.paperSize]) {
+      const p = PAPER_SIZES[this.paperSize];
+      let paperRatio = p.ratio;
+      if (this.orientation === 'landscape') {
+        paperRatio = 1 / paperRatio;
+      }
+      if (contentW / contentH > paperRatio) {
+        targetW = contentW;
+        targetH = contentW / paperRatio;
+      } else {
+        targetH = contentH;
+        targetW = contentH * paperRatio;
+      }
+    }
+
+    const pCanvas = this.previewCanvas;
+    const maxPrevW = 480;
+    const scale = maxPrevW / targetW;
+
+    pCanvas.width = maxPrevW;
+    pCanvas.height = Math.round(targetH * scale);
+
+    const ctx = pCanvas.getContext('2d');
+    ctx.clearRect(0, 0, pCanvas.width, pCanvas.height);
+
+    // Sfondo
+    if (this.bgStyle === 'light') {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, pCanvas.width, pCanvas.height);
+    } else if (this.bgStyle === 'dark') {
+      ctx.fillStyle = '#0d1117';
+      ctx.fillRect(0, 0, pCanvas.width, pCanvas.height);
+    }
+
+    // Disegna cornice pagina se formato A0-A6
+    if (this.paperSize !== 'Auto') {
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(2, 2, pCanvas.width - 4, pCanvas.height - 4);
+    }
+
+    // Offset centratura contenuto
+    const offsetX = (targetW - contentW) / 2 + padding - minX;
+    const offsetY = (targetH - contentH) / 2 + padding - minY;
+
+    ctx.save();
+    ctx.scale(scale, scale);
+    ctx.translate(offsetX, offsetY);
+
+    // Disegna percorsi SVG
+    for (const p of this.canvas.renderedPaths || []) {
+      ctx.strokeStyle = p.color || '#38bdf8';
+      ctx.lineWidth = 2.5;
+      const path2d = new Path2D(p.d);
+      ctx.stroke(path2d);
+    }
+
+    // Disegna nodi
+    for (const n of nodes) {
+      ctx.fillStyle = n.isRoot ? '#2563eb' : (this.bgStyle === 'light' ? '#f1f5f9' : '#1e293b');
+      ctx.strokeStyle = n.color || '#38bdf8';
+      ctx.lineWidth = 1.8;
+
+      ctx.beginPath();
+      ctx.roundRect(n.x, n.y, n.width, n.height, 6);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = (this.bgStyle === 'light' && !n.isRoot) ? '#0f172a' : '#ffffff';
+      ctx.font = n.isRoot ? 'bold 16px sans-serif' : '13px sans-serif';
+      ctx.fillText(n.text.slice(0, 26), n.x + 8, n.y + (n.height / 2) + 4);
+    }
+
+    ctx.restore();
+  }
+
+  doExport() {
+    const title = (this.canvas.rawRootNode.text || 'mindmap').replace(/[/\\?%*:|"<>]/g, '_');
+    const ext = this.format;
+    const fileName = `${title}_${this.paperSize}_${this.orientation}.${ext}`;
+
+    if (this.format === 'svg') {
+      this.canvas.exportSVG();
+      this.close();
+      return;
+    }
+
+    // Render su canvas ad alta risoluzione
+    const nodes = this.canvas.renderedNodes || [];
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of nodes) {
+      if (n.x < minX) minX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.x + n.width > maxX) maxX = n.x + n.width;
+      if (n.y + n.height > maxY) maxY = n.y + n.height;
+    }
+
+    const padding = 70;
+    const contentW = (maxX - minX) + padding * 2;
+    const contentH = (maxY - minY) + padding * 2;
+
+    let targetW = contentW;
+    let targetH = contentH;
+
+    if (this.paperSize !== 'Auto' && PAPER_SIZES[this.paperSize]) {
+      const p = PAPER_SIZES[this.paperSize];
+      let paperRatio = p.ratio;
+      if (this.orientation === 'landscape') paperRatio = 1 / paperRatio;
+      if (contentW / contentH > paperRatio) {
+        targetW = contentW;
+        targetH = contentW / paperRatio;
+      } else {
+        targetH = contentH;
+        targetW = contentH * paperRatio;
+      }
+    }
+
+    const exportCanvas = document.createElement('canvas');
+    const dpi = this.qualityDpi;
+    exportCanvas.width = Math.round(targetW * dpi);
+    exportCanvas.height = Math.round(targetH * dpi);
+
+    const ctx = exportCanvas.getContext('2d');
+    ctx.scale(dpi, dpi);
+
+    if (this.bgStyle === 'light') {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, targetW, targetH);
+    } else if (this.bgStyle === 'dark') {
+      ctx.fillStyle = '#0d1117';
+      ctx.fillRect(0, 0, targetW, targetH);
+    }
+
+    const offsetX = (targetW - contentW) / 2 + padding - minX;
+    const offsetY = (targetH - contentH) / 2 + padding - minY;
+
+    ctx.save();
+    ctx.translate(offsetX, offsetY);
+
+    for (const p of this.canvas.renderedPaths || []) {
+      ctx.strokeStyle = p.color || '#38bdf8';
+      ctx.lineWidth = 2.8;
+      const path2d = new Path2D(p.d);
+      ctx.stroke(path2d);
+    }
+
+    for (const n of nodes) {
+      ctx.fillStyle = n.isRoot ? '#2563eb' : (this.bgStyle === 'light' ? '#f8fafc' : '#1a2238');
+      ctx.strokeStyle = n.color || '#38bdf8';
+      ctx.lineWidth = 2;
+
+      ctx.beginPath();
+      ctx.roundRect(n.x, n.y, n.width, n.height, 8);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = (this.bgStyle === 'light' && !n.isRoot) ? '#0f172a' : '#ffffff';
+      ctx.font = n.isRoot ? 'bold 18px sans-serif' : '14px sans-serif';
+      ctx.fillText(n.text, n.x + 12, n.y + (n.height / 2) + 5);
+    }
+
+    ctx.restore();
+
+    if (this.format === 'pdf') {
+      // Per PDF: apre la finestra di stampa con anteprima 1:1 o esporta come immagine formattata per stampa
+      const dataUrl = exportCanvas.toDataURL('image/jpeg', 0.95);
+      const printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.write(`
+          <html>
+            <head>
+              <title>${title} - Esportazione ${this.paperSize}</title>
+              <style>
+                @page { size: ${this.paperSize === 'Auto' ? 'auto' : this.paperSize} ${this.orientation}; margin: 0; }
+                body { margin: 0; display: flex; align-items: center; justify-content: center; background: ${this.bgStyle === 'light' ? '#ffffff' : '#0d1117'}; }
+                img { width: 100vw; height: 100vh; object-fit: contain; }
+              </style>
+            </head>
+            <body>
+              <img src="${dataUrl}" onload="window.print();" />
+            </body>
+          </html>
+        `);
+        printWindow.document.close();
+      }
+      new Notice(`📄 Finestra di stampa PDF ${this.paperSize} avviata!`);
+    } else {
+      const mime = this.format === 'jpg' ? 'image/jpeg' : 'image/png';
+      exportCanvas.toBlob((blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(url);
+        new Notice(`✅ Mappa esportata come ${fileName}!`);
+      }, mime, 0.95);
+    }
+
+    this.close();
+  }
+}
+
+// ==========================================================================
+// 3. MindmapCanvas: Controller con Minimap, Fit-To-Screen e Rich Markdown
 // ==========================================================================
 
 class MindmapCanvas {
   constructor(containerEl, options = {}) {
     this.container = containerEl;
     this.options = options;
+    this.app = options.app || null;
+    this.plugin = options.plugin || null;
     this.filePath = options.filePath || '';
     this.rawRootNode = options.rootNode || { id: 'root', text: 'Mappa Concettuale', children: [], isRoot: true };
     this.selectedNodeId = 'root';
-    this.viewMode = options.viewMode || 'radial'; // 'radial' | 'bilateral' | 'right' | 'table' | 'outline'
-    this.detailLevel = options.detailLevel || 'keypoints'; // 'titles' | 'keypoints' | 'full'
+    this.viewMode = options.viewMode || 'radial';
+    this.detailLevel = options.detailLevel || 'keypoints';
 
     this.panX = 0;
     this.panY = 0;
@@ -714,8 +1078,8 @@ class MindmapCanvas {
     this.isDraggingCanvas = false;
     this.dragStart = { x: 0, y: 0 };
     this.expandedNodes = new Set();
+    this.showMinimap = true;
 
-    // Stato Drag & Drop Nodi Libero
     this.draggedNodeState = null;
 
     this.initDOM();
@@ -726,7 +1090,7 @@ class MindmapCanvas {
     this.container.empty();
     this.container.addClass('cds-mm-container');
 
-    // 1. DOCK SUPERIORE UNIFICATO
+    // 1. DOCK SUPERIORE RESPONSIVE
     this.topDock = this.container.createDiv({ cls: 'cds-mm-top-dock' });
     this.renderTopDock();
 
@@ -744,7 +1108,15 @@ class MindmapCanvas {
     this.floatingBar = this.stage.createDiv({ cls: 'cds-mm-floating-bar' });
     this.floatingBar.style.display = 'none';
 
-    // 3. CONTENITORI PER VISTE TABELLA E OUTLINE GLOBALI
+    // 3. MINIMAP RADAR IN BASSO A DESTRA
+    this.minimapWrap = this.container.createDiv({ cls: 'cds-mm-minimap' });
+    this.minimapCanvas = this.minimapWrap.createEl('canvas', { cls: 'cds-mm-minimap-canvas' });
+    this.minimapCanvas.width = 170;
+    this.minimapCanvas.height = 110;
+    this.minimapLens = this.minimapWrap.createDiv({ cls: 'cds-mm-minimap-lens' });
+    this.setupMinimapEvents();
+
+    // 4. CONTENITORI PER TABELLA E OUTLINE GLOBALI
     this.tableContainer = this.container.createDiv({ cls: 'cds-mm-table-container' });
     this.tableContainer.style.display = 'none';
 
@@ -757,7 +1129,7 @@ class MindmapCanvas {
     window.addEventListener('mouseup', (e) => this.onMouseUp(e));
     this.viewport.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
 
-    // Scorciatoie Tastiera
+    // Tastiera
     this.container.setAttribute('tabindex', '0');
     this.container.addEventListener('keydown', (e) => this.onKeyDown(e));
   }
@@ -774,8 +1146,8 @@ class MindmapCanvas {
         cls: 'cds-mm-dock-btn' + (this.viewMode === id ? ' is-active' : ''),
         attr: { title: `Passa a vista ${label}` }
       });
-      b.innerHTML = `${icon} <span>${label}</span>`;
-      b.onmousedown = (e) => { e.stopPropagation(); };
+      b.innerHTML = `${icon} <span class="cds-mm-btn-text">${label}</span>`;
+      b.onmousedown = (e) => e.stopPropagation();
       b.onclick = (e) => {
         e.stopPropagation();
         this.viewMode = id;
@@ -788,10 +1160,10 @@ class MindmapCanvas {
     mkViewBtn('radial', 'Radiale 360°', '🌟');
     mkViewBtn('bilateral', 'Bilaterale', '🧠');
     mkViewBtn('right', 'A Destra', '🌿');
-    mkViewBtn('table', 'Tabella Globale', '📊');
+    mkViewBtn('table', 'Tabella', '📊');
     mkViewBtn('outline', 'Outline', '📑');
 
-    // GRUPPO 2: LIVELLO DI DETTAGLIO
+    // GRUPPO 2: DETTAGLIO
     const groupDetail = this.topDock.createDiv({ cls: 'cds-mm-dock-group' });
     groupDetail.createSpan({ text: 'Dettaglio:', cls: 'cds-mm-dock-label' });
 
@@ -800,8 +1172,8 @@ class MindmapCanvas {
         cls: 'cds-mm-dock-btn' + (this.detailLevel === lvl ? ' is-active' : ''),
         attr: { title: tip }
       });
-      b.innerHTML = `${icon} <span>${label}</span>`;
-      b.onmousedown = (e) => { e.stopPropagation(); };
+      b.innerHTML = `${icon} <span class="cds-mm-btn-text">${label}</span>`;
+      b.onmousedown = (e) => e.stopPropagation();
       b.onclick = (e) => {
         e.stopPropagation();
         this.detailLevel = lvl;
@@ -811,66 +1183,60 @@ class MindmapCanvas {
       return b;
     };
 
-    mkDetailBtn('titles', 'Solo Titoli', '🏷️', 'Mostra solo la gerarchia H1/H2/H3');
-    mkDetailBtn('keypoints', 'Punti Chiave', '🎯', 'Mostra titoli e concetti principali evidenziati');
+    mkDetailBtn('titles', 'Titoli', '🏷️', 'Mostra solo la gerarchia dei titoli H1..H6');
+    mkDetailBtn('keypoints', 'Punti Chiave', '🎯', 'Mostra titoli e punti chiave salienti');
     mkDetailBtn('full', 'Tutto', '📖', 'Mostra anche il testo completo dei paragrafi');
 
-    // GRUPPO 3: STRUMENTI OPERATIVI
+    // GRUPPO 3: STRUMENTI & NAVIGAZIONE
     const groupTools = this.topDock.createDiv({ cls: 'cds-mm-dock-group' });
 
     const mkToolBtn = (icon, tip, onClick) => {
       const b = groupTools.createEl('button', { cls: 'cds-mm-dock-btn', attr: { title: tip } });
       b.innerHTML = icon;
-      b.onmousedown = (e) => { e.stopPropagation(); };
-      b.onclick = (e) => {
-        e.stopPropagation();
-        onClick();
-      };
+      b.onmousedown = (e) => e.stopPropagation();
+      b.onclick = (e) => { e.stopPropagation(); onClick(); };
       return b;
     };
 
-    mkToolBtn('➕ Figlio', 'Aggiungi Nodo Figlio (Tab)', () => this.addChildToSelected());
-    mkToolBtn('⏬ Fratello', 'Aggiungi Nodo Fratello (Enter)', () => this.addSiblingToSelected());
-    mkToolBtn('📊 Tabella Nodo', 'Commuta layout del nodo selezionato in Tabella', () => this.toggleTableLayoutSelected());
-    mkToolBtn('🗑️', 'Elimina Nodo (Canc)', () => this.deleteSelected());
+    mkToolBtn('➕ <span class="cds-mm-btn-text">Figlio</span>', 'Aggiungi Nodo Figlio (Tab)', () => this.addChildToSelected());
+    mkToolBtn('⏬ <span class="cds-mm-btn-text">Fratello</span>', 'Aggiungi Nodo Fratello (Enter)', () => this.addSiblingToSelected());
+    mkToolBtn('🗑️', 'Elimina Nodo Selezionato (Canc)', () => this.deleteSelected());
 
     groupTools.createDiv({ cls: 'cds-mm-divider' });
 
-    mkToolBtn('🧭 Centra', 'Centra Mappa (Ctrl+E)', () => this.centerRoot());
-    mkToolBtn('🔄 Reset Layout', 'Ripristina posizioni automatiche', () => this.resetCustomPositions());
-    mkToolBtn('🔍+', 'Zoom In', () => this.setZoom(this.zoom * 1.15));
-    mkToolBtn('🔍−', 'Zoom Out', () => this.setZoom(this.zoom / 1.15));
-    mkToolBtn('100%', 'Reset Zoom', () => { this.zoom = 1; this.updateTransform(); });
+    mkToolBtn('🔍 Adatta', 'Visualizza Intera Mappa nello Schermo (Fit-All)', () => this.fitToScreen());
+    mkToolBtn('🧭 Centra', 'Centra la radice della mappa (Ctrl+E)', () => this.centerRoot());
+    mkToolBtn('🔄 Reset', 'Reimposta posizioni automatiche', () => this.resetCustomPositions());
+    mkToolBtn('🗺️', 'Attiva/Disattiva Minimap', () => this.toggleMinimap());
 
     groupTools.createDiv({ cls: 'cds-mm-divider' });
 
-    mkToolBtn('🖼️ SVG', 'Esporta Immagine SVG', () => this.exportSVG());
-    mkToolBtn('📷 PNG', 'Esporta Immagine PNG', () => this.exportPNG());
+    mkToolBtn('📤 Esporta HD', 'Esporta nei formati da A0 ad A6 (PNG, JPG, PDF, SVG)', () => this.openExportModal());
   }
 
   render() {
-    // 1. Modalità Tabella Globale
     if (this.viewMode === 'table') {
       this.viewport.style.display = 'none';
       this.outlineContainer.style.display = 'none';
       this.tableContainer.style.display = 'block';
+      this.minimapWrap.style.display = 'none';
       this.renderTableView();
       return;
     }
 
-    // 2. Modalità Outline Globale
     if (this.viewMode === 'outline') {
       this.viewport.style.display = 'none';
       this.tableContainer.style.display = 'none';
       this.outlineContainer.style.display = 'block';
+      this.minimapWrap.style.display = 'none';
       this.renderOutlineView();
       return;
     }
 
-    // 3. Modalità Canvas (Radiale, Bilaterale o A Destra)
     this.tableContainer.style.display = 'none';
     this.outlineContainer.style.display = 'none';
     this.viewport.style.display = 'block';
+    this.minimapWrap.style.display = this.showMinimap ? 'block' : 'none';
 
     const activeTree = MindmapEngine.filterTreeByDetail(this.rawRootNode, this.detailLevel);
 
@@ -886,12 +1252,11 @@ class MindmapCanvas {
     this.renderedNodes = layout.nodes;
     this.renderedPaths = layout.paths;
 
-    // Disegna percorsi SVG
     while (this.svgLayer.firstChild) {
       this.svgLayer.removeChild(this.svgLayer.firstChild);
     }
 
-    let minX = 0, minY = 0, maxX = 2600, maxY = 2200;
+    let minX = 0, minY = 0, maxX = 2800, maxY = 2400;
 
     for (const p of this.renderedPaths) {
       const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -903,7 +1268,6 @@ class MindmapCanvas {
       this.svgLayer.appendChild(pathEl);
     }
 
-    // Disegna Nodi HTML
     this.nodesLayer.empty();
     let selectedNodeEl = null;
 
@@ -926,30 +1290,54 @@ class MindmapCanvas {
       nodeEl.style.left = `${node.x}px`;
       nodeEl.style.top = `${node.y}px`;
       nodeEl.style.width = `${node.width}px`;
-      nodeEl.style.borderColor = node.isRoot ? 'rgba(255,255,255,0.45)' : node.color || '#38bdf8';
+      nodeEl.style.borderColor = node.isRoot ? 'rgba(255,255,255,0.5)' : node.color || '#38bdf8';
 
       if (isSelected) selectedNodeEl = nodeEl;
 
-      // 1. SE IL NODO È IN MODALITÀ TABELLA INCORPORATA
       if (node.layout === 'table') {
         this.renderEmbeddedTableNode(node, nodeEl);
       } else {
-        // NODO STANDARD
         const headerRow = nodeEl.createDiv({ cls: 'cds-mm-node-header' });
 
-        if (node.type === 'keypoint') {
+        if (node.isRoot) {
+          headerRow.createSpan({ text: '🗺️ Titolo Mappa', cls: 'cds-mm-root-badge' });
+        } else if (node.type === 'keypoint') {
           headerRow.createSpan({ text: '🎯', cls: 'cds-mm-kp-badge' });
-        } else if (!node.isRoot && node.depth === 1) {
+        } else if (node.depth === 1) {
           headerRow.createSpan({ text: '🏷️ Cap.', cls: 'cds-mm-chap-badge' });
         }
 
-        const titleEl = headerRow.createDiv({ cls: 'cds-mm-node-title', text: node.text });
+        const titleEl = headerRow.createDiv({ cls: 'cds-mm-node-title' });
 
-        // Testo di paragrafo approfondito
+        // Rich Markdown Rendering
+        if (this.app && MarkdownRenderer && MarkdownRenderer.render) {
+          MarkdownRenderer.render(this.app, node.text, titleEl, this.filePath, this.plugin || {});
+        } else {
+          titleEl.innerHTML = MindmapEngine.renderMiniMarkdown(node.text);
+        }
+
+        // Miniatura Immagine se presente
+        if (node.images && node.images.length) {
+          const imgWrap = nodeEl.createDiv({ cls: 'cds-mm-node-img-wrap' });
+          for (const img of node.images) {
+            let src = img.path;
+            if (img.type === 'vault' && this.app) {
+              const f = this.app.metadataCache.getFirstLinkpathDest(img.path, this.filePath);
+              if (f) src = this.app.vault.getResourcePath(f);
+            }
+            const imgEl = imgWrap.createEl('img', { cls: 'cds-mm-node-thumb', attr: { src } });
+            imgEl.onclick = (ev) => {
+              ev.stopPropagation();
+              window.open(src, '_blank');
+            };
+          }
+        }
+
+        // Testo di paragrafo
         if (node.bodyText) {
           if (this.detailLevel === 'full' || this.expandedNodes.has(node.id)) {
             const bodyEl = nodeEl.createDiv({ cls: 'cds-mm-node-body' });
-            bodyEl.textContent = node.bodyText;
+            bodyEl.innerHTML = MindmapEngine.renderMiniMarkdown(node.bodyText);
           } else if (this.detailLevel === 'keypoints') {
             const toggle = nodeEl.createDiv({ cls: 'cds-mm-expand-toggle' });
             toggle.textContent = '… Dettagli testo';
@@ -962,20 +1350,18 @@ class MindmapCanvas {
           }
         }
 
-        // Badge Citazione PDF
+        // Badge PDF
         if (node.pdfLink) {
           const badge = nodeEl.createDiv({ cls: 'cds-mm-pdf-badge' });
           badge.innerHTML = `📄 <b>${node.pdfLink.file}</b> · Pag. ${node.pdfLink.page}`;
           badge.onmousedown = (ev) => ev.stopPropagation();
           badge.onclick = (ev) => {
             ev.stopPropagation();
-            if (this.options.onPdfJump) {
-              this.options.onPdfJump(node.pdfLink);
-            }
+            if (this.options.onPdfJump) this.options.onPdfJump(node.pdfLink);
           };
         }
 
-        // Pulsante Espandi/Riduci se ha figli
+        // Fold button
         if (node.children && node.children.length) {
           const foldBtn = nodeEl.createDiv({
             cls: 'cds-mm-fold-btn' + (node.collapsed ? ' is-collapsed' : '')
@@ -993,10 +1379,16 @@ class MindmapCanvas {
         }
       }
 
-      // Eventi di selezione e inizio Drag Libero sul Nodo
+      // Eventi di click e inizio Drag Libero
       nodeEl.onmousedown = (ev) => {
         ev.stopPropagation();
         this.selectNode(node.id);
+
+        // Se clicco in un nodo, evidenzia quel punto della nota markdown!
+        if (this.options.onNodeClick) {
+          this.options.onNodeClick(node);
+        }
+
         if (ev.button === 0 && !node.isRoot) {
           this.initNodeDrag(node, nodeEl, ev);
         }
@@ -1015,17 +1407,14 @@ class MindmapCanvas {
     this.stage.style.width = `${maxX + 400}px`;
     this.stage.style.height = `${maxY + 400}px`;
 
-    // Aggiorna posizione Floating Bar contestuale
     this.updateFloatingBar(selectedNodeEl);
     this.updateTransform();
+    this.updateMinimap();
   }
 
-  /**
-   * Rendering della modalità Tabella Incorporata per singolo nodo (Stile MarkMind)
-   */
   renderEmbeddedTableNode(node, nodeEl) {
     const topBar = nodeEl.createDiv({ cls: 'cds-mm-table-node-top' });
-    const titleSpan = topBar.createSpan({ cls: 'cds-mm-table-node-title', text: node.text });
+    topBar.createSpan({ cls: 'cds-mm-table-node-title', text: node.text });
 
     const tools = topBar.createDiv({ cls: 'cds-mm-table-node-tools' });
 
@@ -1040,7 +1429,7 @@ class MindmapCanvas {
       this.triggerSave();
     };
 
-    const bAddRow = tools.createEl('button', { cls: 'cds-mm-mini-btn', text: '+ Riga', attr: { title: 'Aggiungi nuova riga alla tabella' } });
+    const bAddRow = tools.createEl('button', { cls: 'cds-mm-mini-btn', text: '+ Riga', attr: { title: 'Aggiungi nuova riga' } });
     bAddRow.onmousedown = (e) => e.stopPropagation();
     bAddRow.onclick = (e) => {
       e.stopPropagation();
@@ -1052,7 +1441,6 @@ class MindmapCanvas {
       this.triggerSave();
     };
 
-    // Tabella
     const tableWrap = nodeEl.createDiv({ cls: 'cds-mm-node-table-embed' });
     const table = tableWrap.createEl('table');
     const thead = table.createEl('thead');
@@ -1081,7 +1469,6 @@ class MindmapCanvas {
     const rows = (node.tableData && node.tableData.rows) ? node.tableData.rows : [];
 
     if (!rows.length && node.children && node.children.length) {
-      // Inizializza da figli se disponibili
       for (const ch of node.children) {
         rows.push([ch.text, ch.bodyText || '—']);
       }
@@ -1105,9 +1492,6 @@ class MindmapCanvas {
     });
   }
 
-  /**
-   * Aggiorna la barra flottante contestuale sopra il nodo selezionato
-   */
   updateFloatingBar(selectedEl) {
     if (!selectedEl || this.selectedNodeId === 'root') {
       this.floatingBar.style.display = 'none';
@@ -1135,23 +1519,211 @@ class MindmapCanvas {
     mkFloatBtn('⏬ Fratello', 'Aggiungi nodo fratello (Enter)', () => this.addSiblingToSelected());
 
     const isTable = rawNode.layout === 'table';
-    mkFloatBtn(isTable ? '🧠 Mappa' : '📊 Tabella', isTable ? 'Converti in Ramo Mappa' : 'Converti in Tabella Incorporata', () => this.toggleTableLayoutSelected());
+    mkFloatBtn(isTable ? '🧠 Mappa' : '📊 Tabella', isTable ? 'Ritorna a Ramo Mappa' : 'Converti in Tabella', () => this.toggleTableLayoutSelected());
+
+    mkFloatBtn('📷 Foto', 'Inserisci Immagine nel nodo', () => this.promptInsertImage(rawNode));
+    mkFloatBtn('📄 PDF', 'Collega Documento PDF', () => this.promptInsertPdf(rawNode));
+    mkFloatBtn('🔗 Link', 'Inserisci Collegamento Esterno', () => this.promptInsertLink(rawNode));
 
     mkFloatBtn('✏️', 'Modifica Testo (F2)', () => this.startEditing(rawNode, selectedEl));
     mkFloatBtn('🗑️', 'Elimina Nodo (Canc)', () => this.deleteSelected());
 
-    // Posizionamento al di sopra del nodo selezionato
     const nodeX = parseFloat(selectedEl.style.left) || 0;
     const nodeY = parseFloat(selectedEl.style.top) || 0;
     const nodeW = parseFloat(selectedEl.style.width) || 160;
 
     this.floatingBar.style.left = `${nodeX + (nodeW / 2)}px`;
-    this.floatingBar.style.top = `${nodeY - 12}px`;
+    this.floatingBar.style.top = `${nodeY - 14}px`;
   }
 
-  /**
-   * SPOSTAMENTO LIBERO DEI NODI (Free Drag & Drop)
-   */
+  // ==========================================================================
+  // INSERIMENTO MEDIA (FOTO, PDF, LINK)
+  // ==========================================================================
+  promptInsertImage(node) {
+    const input = prompt('Inserisci il nome del file immagine nel vault (es: schema.png) o un URL web:');
+    if (!input || !input.trim()) return;
+    const clean = input.trim();
+    if (clean.startsWith('http')) {
+      node.text += ` ![immagine](${clean})`;
+    } else {
+      node.text += ` ![[${clean}]]`;
+    }
+    this.render();
+    this.triggerSave();
+    new Notice('📷 Immagine inserita nel nodo!');
+  }
+
+  promptInsertPdf(node) {
+    const fileName = prompt('Nome del documento PDF nel vault (es: Relazione.pdf):');
+    if (!fileName || !fileName.trim()) return;
+    const page = prompt('Numero di pagina:', '1');
+    const clean = fileName.trim();
+    const pNum = parseInt(page || '1', 10) || 1;
+    node.text += ` [[${clean}#page=${pNum}|📄 Pag. ${pNum}]]`;
+    this.render();
+    this.triggerSave();
+    new Notice('📄 Collegamento PDF aggiunto!');
+  }
+
+  promptInsertLink(node) {
+    const url = prompt('Inserisci URL esterno (es: https://esempio.com):');
+    if (!url || !url.trim()) return;
+    const label = prompt('Testo del link:', 'Sito Web');
+    node.text += ` [${label || 'Link'}](${url.trim()})`;
+    this.render();
+    this.triggerSave();
+    new Notice('🔗 Collegamento esterno inserito!');
+  }
+
+  // ==========================================================================
+  // MINIMAP E FIT-TO-SCREEN
+  // ==========================================================================
+  setupMinimapEvents() {
+    this.minimapWrap.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+      this.panWithMinimap(e);
+    });
+  }
+
+  toggleMinimap() {
+    this.showMinimap = !this.showMinimap;
+    this.minimapWrap.style.display = this.showMinimap ? 'block' : 'none';
+    if (this.showMinimap) this.updateMinimap();
+  }
+
+  updateMinimap() {
+    if (!this.showMinimap || !this.renderedNodes || !this.renderedNodes.length) return;
+
+    const ctx = this.minimapCanvas.getContext('2d');
+    const mW = this.minimapCanvas.width;
+    const mH = this.minimapCanvas.height;
+
+    ctx.clearRect(0, 0, mW, mH);
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+    ctx.fillRect(0, 0, mW, mH);
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of this.renderedNodes) {
+      if (n.x < minX) minX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.x + n.width > maxX) maxX = n.x + n.width;
+      if (n.y + n.height > maxY) maxY = n.y + n.height;
+    }
+
+    const padding = 40;
+    const mapW = Math.max(100, (maxX - minX) + padding * 2);
+    const mapH = Math.max(100, (maxY - minY) + padding * 2);
+
+    const scale = Math.min(mW / mapW, mH / mapH);
+
+    ctx.save();
+    ctx.scale(scale, scale);
+    ctx.translate(padding - minX, padding - minY);
+
+    for (const p of this.renderedPaths || []) {
+      ctx.strokeStyle = p.color || '#38bdf8';
+      ctx.lineWidth = 2.5;
+      const path2d = new Path2D(p.d);
+      ctx.stroke(path2d);
+    }
+
+    for (const n of this.renderedNodes) {
+      ctx.fillStyle = n.isRoot ? '#2563eb' : (n.color || '#38bdf8');
+      ctx.fillRect(n.x, n.y, n.width, n.height);
+    }
+
+    ctx.restore();
+
+    // Disegna il riquadro della vista attuale (lens)
+    const vW = this.viewport.clientWidth || 1000;
+    const vH = this.viewport.clientHeight || 700;
+
+    const visibleLeft = (-this.panX / this.zoom);
+    const visibleTop = (-this.panY / this.zoom);
+    const visibleW = (vW / this.zoom);
+    const visibleH = (vH / this.zoom);
+
+    const lensX = ((visibleLeft - minX + padding) * scale);
+    const lensY = ((visibleTop - minY + padding) * scale);
+    const lensW = Math.max(10, visibleW * scale);
+    const lensH = Math.max(10, visibleH * scale);
+
+    this.minimapLens.style.left = `${Math.max(0, Math.min(mW - 10, lensX))}px`;
+    this.minimapLens.style.top = `${Math.max(0, Math.min(mH - 10, lensY))}px`;
+    this.minimapLens.style.width = `${Math.min(mW, lensW)}px`;
+    this.minimapLens.style.height = `${Math.min(mH, lensH)}px`;
+  }
+
+  panWithMinimap(e) {
+    const rect = this.minimapWrap.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of this.renderedNodes || []) {
+      if (n.x < minX) minX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.x + n.width > maxX) maxX = n.x + n.width;
+      if (n.y + n.height > maxY) maxY = n.y + n.height;
+    }
+
+    const padding = 40;
+    const mapW = Math.max(100, (maxX - minX) + padding * 2);
+    const mapH = Math.max(100, (maxY - minY) + padding * 2);
+    const scale = Math.min(this.minimapCanvas.width / mapW, this.minimapCanvas.height / mapH);
+
+    const targetMapX = (clickX / scale) + minX - padding;
+    const targetMapY = (clickY / scale) + minY - padding;
+
+    const vW = this.viewport.clientWidth || 1000;
+    const vH = this.viewport.clientHeight || 700;
+
+    this.panX = (vW / 2) - (targetMapX * this.zoom);
+    this.panY = (vH / 2) - (targetMapY * this.zoom);
+    this.updateTransform();
+    this.updateMinimap();
+  }
+
+  fitToScreen() {
+    if (!this.renderedNodes || !this.renderedNodes.length) return;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of this.renderedNodes) {
+      if (n.x < minX) minX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.x + n.width > maxX) maxX = n.x + n.width;
+      if (n.y + n.height > maxY) maxY = n.y + n.height;
+    }
+
+    const vW = this.viewport.clientWidth || 1000;
+    const vH = this.viewport.clientHeight || 700;
+    const padding = 80;
+
+    const mapW = Math.max(100, (maxX - minX));
+    const mapH = Math.max(100, (maxY - minY));
+
+    const scaleX = (vW - padding * 2) / mapW;
+    const scaleY = (vH - padding * 2) / mapH;
+    this.zoom = Math.max(0.18, Math.min(1.4, Math.min(scaleX, scaleY)));
+
+    const mapCenterX = minX + (mapW / 2);
+    const mapCenterY = minY + (mapH / 2);
+
+    this.panX = (vW / 2) - (mapCenterX * this.zoom);
+    this.panY = (vH / 2) - (mapCenterY * this.zoom);
+
+    this.updateTransform();
+    this.updateMinimap();
+    new Notice('🔍 Visualizzazione intera mappa adattata allo schermo');
+  }
+
+  openExportModal() {
+    new MindmapExportModal(this.app, this).open();
+  }
+
+  // ==========================================================================
+  // DRAG AND DROP LIBERO
+  // ==========================================================================
   initNodeDrag(node, nodeEl, ev) {
     const rawNode = this.findRawNode(node.id);
     if (!rawNode) return;
@@ -1183,15 +1755,14 @@ class MindmapCanvas {
   }
 
   onMouseMove(ev) {
-    // 1. Spostamento Canvas (Pan)
     if (this.isDraggingCanvas) {
       this.panX = ev.clientX - this.dragStart.x;
       this.panY = ev.clientY - this.dragStart.y;
       this.updateTransform();
+      this.updateMinimap();
       return;
     }
 
-    // 2. Spostamento Libero del Nodo
     if (this.draggedNodeState) {
       const s = this.draggedNodeState;
       const dx = (ev.clientX - s.startX) / this.zoom;
@@ -1210,7 +1781,6 @@ class MindmapCanvas {
         s.nodeEl.style.left = `${newX}px`;
         s.nodeEl.style.top = `${newY}px`;
 
-        // Sposta tutti i discendenti insieme
         for (const desc of s.descendants) {
           desc.node.x = desc.origX + dx;
           desc.node.y = desc.origY + dy;
@@ -1221,10 +1791,8 @@ class MindmapCanvas {
           }
         }
 
-        // Ridisegna al volo le linee SVG collegate
         this.updateBranchPathsRealtime();
 
-        // Evidenzia eventuale target di adozione (reparenting)
         const els = document.elementsFromPoint(ev.clientX, ev.clientY);
         const targetEl = els.find(el => el.classList && el.classList.contains('cds-mm-node') && el !== s.nodeEl);
         document.querySelectorAll('.cds-mm-node.is-drop-target').forEach(el => el.classList.remove('is-drop-target'));
@@ -1251,7 +1819,6 @@ class MindmapCanvas {
       document.querySelectorAll('.cds-mm-node.is-drop-target').forEach(el => el.classList.remove('is-drop-target'));
 
       if (s.hasMoved) {
-        // A. RILASCIO SOPRA UN ALTRO NODO -> REPARENTING (Adozione gerarchica)
         if (s.hoverTargetId && s.hoverTargetId !== s.node.id) {
           const isDescendant = s.descendants.some(d => d.node.id === s.hoverTargetId);
           if (!isDescendant) {
@@ -1263,7 +1830,6 @@ class MindmapCanvas {
               newParent.children.push(s.rawNode);
               newParent.collapsed = false;
 
-              // Rimuovi coordinate custom per far riorganizzare la gerarchia
               delete s.rawNode.customX;
               delete s.rawNode.customY;
 
@@ -1275,11 +1841,9 @@ class MindmapCanvas {
           }
         }
 
-        // B. RILASCIO NELLO SPAZIO VUOTO -> SALVATAGGIO COORDINATE LIBERE
         s.rawNode.customX = s.node.x;
         s.rawNode.customY = s.node.y;
 
-        // Salva anche coordinate per discendenti
         for (const desc of s.descendants) {
           if (desc.rawNode) {
             desc.rawNode.customX = desc.node.x;
@@ -1287,7 +1851,6 @@ class MindmapCanvas {
           }
         }
 
-        // Aggiorna cache sessione
         if (this.filePath) {
           const fc = CUSTOM_POSITIONS_CACHE.get(this.filePath) || {};
           fc[s.rawNode.id] = { x: s.rawNode.customX, y: s.rawNode.customY, layout: s.rawNode.layout };
@@ -1470,13 +2033,10 @@ class MindmapCanvas {
     input.className = 'cds-mm-editor-input';
     input.value = node.text;
 
-    const rect = nodeEl.getBoundingClientRect();
-    const stageRect = this.stage.getBoundingClientRect();
-
     input.style.left = `${node.x}px`;
     input.style.top = `${node.y}px`;
-    input.style.width = `${Math.max(node.width, 200)}px`;
-    input.style.height = `${Math.max(node.height, 56)}px`;
+    input.style.width = `${Math.max(node.width, 220)}px`;
+    input.style.height = `${Math.max(node.height, 60)}px`;
 
     this.nodesLayer.appendChild(input);
     input.focus();
@@ -1536,7 +2096,7 @@ class MindmapCanvas {
   }
 
   onMouseDown(e) {
-    if (e.target.closest('.cds-mm-node') || e.target.closest('.cds-mm-top-dock') || e.target.closest('.cds-mm-floating-bar')) return;
+    if (e.target.closest('.cds-mm-node') || e.target.closest('.cds-mm-top-dock') || e.target.closest('.cds-mm-floating-bar') || e.target.closest('.cds-mm-minimap')) return;
     this.isDraggingCanvas = true;
     this.viewport.addClass('is-dragging');
     this.dragStart = { x: e.clientX - this.panX, y: e.clientY - this.panY };
@@ -1551,6 +2111,7 @@ class MindmapCanvas {
       this.panX -= e.deltaX * 0.8;
       this.panY -= e.deltaY * 0.8;
       this.updateTransform();
+      this.updateMinimap();
     }
   }
 
@@ -1559,8 +2120,9 @@ class MindmapCanvas {
   }
 
   setZoom(val) {
-    this.zoom = Math.max(0.25, Math.min(3.0, val));
+    this.zoom = Math.max(0.2, Math.min(3.0, val));
     this.updateTransform();
+    this.updateMinimap();
   }
 
   centerRoot() {
@@ -1568,22 +2130,20 @@ class MindmapCanvas {
     const vH = this.viewport.clientHeight || 700;
 
     if (this.viewMode === 'radial') {
-      this.panX = (vW / 2) - 1400;
-      this.panY = (vH / 2) - 1100;
+      this.panX = (vW / 2) - 1500;
+      this.panY = (vH / 2) - 1200;
     } else if (this.viewMode === 'bilateral') {
-      this.panX = (vW / 2) - 1000 - (this.rawRootNode.width / 2);
-      this.panY = (vH / 2) - 280 - (this.rawRootNode.height / 2);
+      this.panX = (vW / 2) - 1100 - (this.rawRootNode.width / 2);
+      this.panY = (vH / 2) - 300 - (this.rawRootNode.height / 2);
     } else {
       this.panX = Math.max(60, vW * 0.1);
       this.panY = Math.max(60, (vH / 2) - 150);
     }
     this.zoom = 1;
     this.updateTransform();
+    this.updateMinimap();
   }
 
-  /**
-   * VISTA TABELLA GLOBALE
-   */
   renderTableView() {
     this.tableContainer.empty();
     const table = this.tableContainer.createEl('table', { cls: 'cds-mm-table' });
@@ -1598,7 +2158,7 @@ class MindmapCanvas {
 
     if (!chapters.length) {
       const row = tbody.createEl('tr');
-      row.createEl('td', { text: 'Nessun capitolo presente. Aggiungi sezioni per popolare la tabella.', attr: { colspan: 4, style: 'text-align:center;color:#94a3b8;padding:24px;' } });
+      row.createEl('td', { text: 'Nessun capitolo presente.', attr: { colspan: 4, style: 'text-align:center;color:#94a3b8;padding:24px;' } });
       return;
     }
 
@@ -1613,7 +2173,6 @@ class MindmapCanvas {
           const kp = keypoints[kIdx];
           const tr = tbody.createEl('tr');
 
-          // Cella Capitolo
           if (sIdx === 0 && kIdx === 0) {
             const tdChap = tr.createEl('td', { attr: { rowspan: sections.reduce((acc, s) => acc + (s.children && s.children.length ? s.children.length : 1), 0) } });
             tdChap.style.fontWeight = '700';
@@ -1623,7 +2182,6 @@ class MindmapCanvas {
             cell.onblur = () => { chap.text = cell.textContent.trim(); this.triggerSave(); };
           }
 
-          // Cella Sezione
           if (kIdx === 0) {
             const tdSec = tr.createEl('td', { attr: { rowspan: kp ? (sec.children && sec.children.length ? sec.children.length : 1) : 1 } });
             tdSec.style.fontWeight = '600';
@@ -1632,13 +2190,11 @@ class MindmapCanvas {
             cell.onblur = () => { sec.text = cell.textContent.trim(); this.triggerSave(); };
           }
 
-          // Cella Punto Chiave
           const tdKp = tr.createEl('td');
           const cellKp = tdKp.createDiv({ cls: 'cds-mm-table-cell', text: kp.text });
           cellKp.contentEditable = 'true';
           cellKp.onblur = () => { kp.text = cellKp.textContent.trim(); this.triggerSave(); };
 
-          // Cella Note & Link PDF
           const tdNote = tr.createEl('td');
           if (kp.pdfLink) {
             const b = tdNote.createDiv({ cls: 'cds-mm-pdf-badge' });
@@ -1653,9 +2209,6 @@ class MindmapCanvas {
     }
   }
 
-  /**
-   * VISTA OUTLINE GLOBALE
-   */
   renderOutlineView() {
     this.outlineContainer.empty();
     this.outlineContainer.createEl('h2', { text: this.rawRootNode.text || 'Outline', attr: { style: 'color:#38bdf8;margin-bottom:18px;' } });
@@ -1713,41 +2266,10 @@ class MindmapCanvas {
     URL.revokeObjectURL(url);
     new Notice('✅ Mappa esportata come SVG!');
   }
-
-  exportPNG() {
-    const clone = this.svgLayer.cloneNode(true);
-    clone.style.background = '#0d1117';
-    const svgStr = new XMLSerializer().serializeToString(clone);
-    const img = new Image();
-    const svgBlob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(svgBlob);
-
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = parseInt(this.svgLayer.getAttribute('width') || '2000', 10);
-      canvas.height = parseInt(this.svgLayer.getAttribute('height') || '1500', 10);
-      const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#0d1117';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0);
-
-      canvas.toBlob((blob) => {
-        const pngUrl = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = pngUrl;
-        a.download = `${this.rawRootNode.text || 'mindmap'}.png`;
-        a.click();
-        URL.revokeObjectURL(pngUrl);
-        new Notice('✅ Mappa esportata come PNG!');
-      });
-      URL.revokeObjectURL(url);
-    };
-    img.src = url;
-  }
 }
 
 // ==========================================================================
-// 3. CdsMindmapView: Vista Obsidian con Live Real-Time Two-Way Sync
+// 4. CdsMindmapView: Vista Obsidian con Salto Bidirezionale Nota ➔ Mappa
 // ==========================================================================
 
 class CdsMindmapView extends ItemView {
@@ -1788,6 +2310,8 @@ class CdsMindmapView extends ItemView {
     this.canvas = new MindmapCanvas(this.contentEl, {
       rootNode,
       frontmatter,
+      app: this.app,
+      plugin: this.plugin,
       filePath: this.file.path,
       onSaveMarkdown: async (newMd) => {
         if (this.file) {
@@ -1801,6 +2325,9 @@ class CdsMindmapView extends ItemView {
       },
       onPdfJump: (pdfLink) => {
         this.plugin.jumpToPdfAnnotation(pdfLink);
+      },
+      onNodeClick: (node) => {
+        this.jumpToNodeInMarkdown(node);
       }
     });
 
@@ -1808,14 +2335,50 @@ class CdsMindmapView extends ItemView {
   }
 
   /**
-   * Ricaricamento live in tempo reale da Markdown (mentre si scrive nella nota)
+   * Salto ed evidenziazione riga nella nota affiancata quando si clicca un nodo
    */
+  jumpToNodeInMarkdown(node) {
+    if (!this.file) return;
+    const mdLeaves = this.app.workspace.getLeavesOfType('markdown');
+    const targetLeaf = mdLeaves.find(l => l.view && l.view.file && l.view.file.path === this.file.path);
+    if (!targetLeaf || !targetLeaf.view || !targetLeaf.view.editor) return;
+
+    const editor = targetLeaf.view.editor;
+    const lineCount = editor.lineCount();
+    let targetLine = -1;
+
+    if (node.sourceLine !== undefined && node.sourceLine >= 0 && node.sourceLine < lineCount) {
+      targetLine = node.sourceLine;
+    } else {
+      const search = (node.text || '').replace(/[#*`~\[\]]/g, '').trim().toLowerCase().slice(0, 20);
+      for (let i = 0; i < lineCount; i++) {
+        if (editor.getLine(i).toLowerCase().includes(search)) {
+          targetLine = i;
+          break;
+        }
+      }
+    }
+
+    if (targetLine !== -1) {
+      editor.setCursor({ line: targetLine, ch: 0 });
+      editor.scrollIntoView({ from: { line: Math.max(0, targetLine - 2), ch: 0 }, to: { line: targetLine + 2, ch: 0 } }, true);
+
+      // Flash highlight visivo nell'editor
+      const viewEl = targetLeaf.view.containerEl;
+      const flashEl = viewEl.createDiv({ cls: 'cds-mm-editor-flash' });
+      flashEl.style.cssText = 'position:absolute;top:0;left:0;right:0;height:30px;background:rgba(56,189,248,0.25);border-left:4px solid #38bdf8;pointer-events:none;z-index:99;transition:opacity 0.6s ease;';
+      setTimeout(() => {
+        flashEl.style.opacity = '0';
+        setTimeout(() => flashEl.remove(), 600);
+      }, 1000);
+    }
+  }
+
   async reloadFromMarkdown() {
     if (!this.file || !this.canvas || this._isInternalSaving) return;
     const content = await this.app.vault.read(this.file);
     const newRoot = MindmapEngine.parseMarkdown(content, this.file.basename, this.file.path);
 
-    // Preserva selezione
     const prevSelectedId = this.canvas.selectedNodeId;
     this.canvas.rawRootNode = newRoot;
     if (this.canvas.findRawNode(prevSelectedId)) {
@@ -1833,17 +2396,15 @@ class CdsMindmapView extends ItemView {
 }
 
 // ==========================================================================
-// 4. CdsMindmapPlugin: Lifecycle & Registrazione Comandi
+// 5. CdsMindmapPlugin: Lifecycle
 // ==========================================================================
 
 module.exports = class CdsMindmapPlugin extends Plugin {
   async onload() {
-    console.log('Loading CDS Mindmap Suite v2.2 (Radial 360 & Free Nodes)');
+    console.log('Loading CDS Mindmap Suite v1.3.0 (Rich Markdown, Fit-All, Minimap & A0-A6 Export)');
 
-    // 1. Registra Vista Nativa
     this.registerView(VIEW_TYPE_MINDMAP, (leaf) => new CdsMindmapView(leaf, this));
 
-    // 2. Sincronizzazione in tempo reale mentre si scrive nelle note
     this.registerEvent(
       this.app.vault.on('modify', (file) => {
         if (!(file instanceof TFile) || file.extension !== 'md') return;
@@ -1857,12 +2418,10 @@ module.exports = class CdsMindmapPlugin extends Plugin {
       })
     );
 
-    // 3. Ribbon Icon
     this.addRibbonIcon('git-fork', 'CDS Mindmap: Apri come Mappa Concettuale', () => {
       this.openActiveNoteAsMindmap();
     });
 
-    // 4. Comandi
     this.addCommand({
       id: 'open-active-note-as-mindmap',
       name: 'Apri nota attiva come Mappa Concettuale (Mindmap)',
@@ -1891,7 +2450,7 @@ module.exports = class CdsMindmapPlugin extends Plugin {
       }
     });
 
-    // 5. Codeblock Processors: ```mindmap e ```markmind
+    // Codeblocks
     const codeblockHandler = (source, el, ctx) => {
       el.empty();
       const wrap = el.createDiv({ cls: 'cds-mm-codeblock' });
@@ -1899,6 +2458,8 @@ module.exports = class CdsMindmapPlugin extends Plugin {
 
       new MindmapCanvas(wrap, {
         rootNode,
+        app: this.app,
+        plugin: this,
         onSaveMarkdown: async (newMd) => {
           const file = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
           if (file instanceof TFile) {
@@ -1919,7 +2480,6 @@ module.exports = class CdsMindmapPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor('mindmap', codeblockHandler);
     this.registerMarkdownCodeBlockProcessor('markmind', codeblockHandler);
 
-    // 6. Menu File
     this.registerEvent(
       this.app.workspace.on('file-menu', (menu, file) => {
         if (file instanceof TFile && file.extension === 'md') {
