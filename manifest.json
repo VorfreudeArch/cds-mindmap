@@ -1,9 +1,9 @@
 {
   "id": "cds-mindmap",
   "name": "CDS Mindmap & Concept Tree",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "minAppVersion": "1.0.0",
-  "description": "Mappa concettuale gerarchica e radiale 360° con zero-collisione a nodi aperti, tabelle ramificate dedicate, navigazione non distruttiva senza conflitti e vista organica.",
+  "description": "Mappa concettuale gerarchica con zero-collisione a massima apertura, modali native Obsidian per Foto/PDF/Link, folding nodi affidabile e cartiglio/timbro/firma con dimensioni e immagini.",
   "author": "VorfreudeArch",
   "isDesktopOnly": false
 }
