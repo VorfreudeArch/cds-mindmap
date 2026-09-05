@@ -608,10 +608,10 @@ class MindmapEngine {
       totalSubtreeH += (c.subtreeHeight || 100);
     });
 
-    // Raggio dinamico calibrato ad ampia apertura per evitare qualsiasi sovrapposizione tra capitoli
-    const baseR = Math.max(850, (totalSubtreeH / (2 * Math.PI)) * 1.55);
-    const rx = baseR * 1.25;
-    const ry = baseR * 0.95;
+    // Raggio dinamico calibrato sullo sviluppo totale dei rami
+    const baseR = Math.max(550, Math.min(1200, (totalSubtreeH / (2 * Math.PI)) * 1.35));
+    const rx = baseR * 1.15;
+    const ry = baseR * 0.90;
 
     let currentAngle = -Math.PI / 2; // Inizia in alto a ore 12
 
@@ -669,7 +669,6 @@ class MindmapEngine {
 
     MindmapEngine.measureNode(rootNode, detailLevel);
 
-    // Calcolo altezze ricorsive con tutti i nodi aperti
     function calcFullSubtreeHeight(n) {
       MindmapEngine.measureNode(n, detailLevel);
       if (!n.children || !n.children.length || n.layout === 'table') {
@@ -714,7 +713,6 @@ class MindmapEngine {
     const renderedNodes = [rootNode];
     const branchPaths = [];
 
-    // Funzione ricorsiva di piazzamento a slab garantito (zero collisioni)
     function placeSlab(parent, startY, dir, color) {
       if (!parent.children || !parent.children.length || parent.layout === 'table' || parent.collapsed) return;
 
@@ -743,8 +741,8 @@ class MindmapEngine {
 
         branchPaths.push({
           d: isRight
-            ? `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`
-            : `M ${x1} ${y1} C ${x1 - dx} ${y1}, ${x2 + dx} ${y2}, ${x2} ${y2}`,
+            ? 'M ' + x1 + ' ' + y1 + ' C ' + (x1 + dx) + ' ' + y1 + ', ' + (x2 - dx) + ' ' + y2 + ', ' + x2 + ' ' + y2
+            : 'M ' + x1 + ' ' + y1 + ' C ' + (x1 - dx) + ' ' + y1 + ', ' + (x2 + dx) + ' ' + y2 + ', ' + x2 + ' ' + y2,
           color,
           fromId: parent.id,
           toId: child.id,
@@ -756,7 +754,6 @@ class MindmapEngine {
       }
     }
 
-    // Capitoli a Destra
     let curRightY = rootNode.y + (rootNode.height / 2) - (totalRightH / 2);
     rightChildren.forEach((chap, idx) => {
       const color = BRANCH_COLORS[idx % BRANCH_COLORS.length];
@@ -780,7 +777,7 @@ class MindmapEngine {
       const dx = Math.abs(x2 - x1) * 0.55;
 
       branchPaths.push({
-        d: `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`,
+        d: 'M ' + x1 + ' ' + y1 + ' C ' + (x1 + dx) + ' ' + y1 + ', ' + (x2 - dx) + ' ' + y2 + ', ' + x2 + ' ' + y2,
         color,
         fromId: rootNode.id,
         toId: chap.id,
@@ -791,7 +788,6 @@ class MindmapEngine {
       curRightY += chap.subtreeHeight + 45;
     });
 
-    // Capitoli a Sinistra
     let curLeftY = rootNode.y + (rootNode.height / 2) - (totalLeftH / 2);
     leftChildren.forEach((chap, idx) => {
       const color = BRANCH_COLORS[(idx + 4) % BRANCH_COLORS.length];
@@ -815,7 +811,7 @@ class MindmapEngine {
       const dx = Math.abs(x1 - x2) * 0.55;
 
       branchPaths.push({
-        d: `M ${x1} ${y1} C ${x1 - dx} ${y1}, ${x2 + dx} ${y2}, ${x2} ${y2}`,
+        d: 'M ' + x1 + ' ' + y1 + ' C ' + (x1 - dx) + ' ' + y1 + ', ' + (x2 + dx) + ' ' + y2 + ', ' + x2 + ' ' + y2,
         color,
         fromId: rootNode.id,
         toId: chap.id,
@@ -830,9 +826,6 @@ class MindmapEngine {
     return { nodes: renderedNodes, paths: branchPaths, root: rootNode };
   }
 
-  // ==========================================================================
-  // LAYOUT 3: AD ALBERO A DESTRA
-  // ==========================================================================
   static computeRightLayout(rootNode, options = {}) {
     const horizontalGap = options.horizontalGap || 80;
     const verticalGap = options.verticalGap || 18;
@@ -960,7 +953,6 @@ class MindmapEngine {
 // ==========================================================================
 
 
-// Modali Professionali Native Obsidian per Inserimento Media nei Nodi
 class NodeImageModal extends Modal {
   constructor(app, node, onInsert) {
     super(app);
@@ -972,7 +964,7 @@ class NodeImageModal extends Modal {
     contentEl.empty();
     contentEl.createEl('h2', { text: '📷 Inserisci Foto / Immagine nel Nodo' });
 
-    contentEl.createEl('p', { text: `Nodo selezionato: "${(this.node.text || '').slice(0, 35)}..."`, cls: 'cds-mm-modal-sub' });
+    contentEl.createEl('p', { text: 'Nodo: "' + (this.node.text || '').slice(0, 35) + '..."', cls: 'cds-mm-modal-sub' });
 
     const lbl = contentEl.createEl('label', { text: 'File Immagine nel Vault o URL Web:' });
     lbl.style.display = 'block';
@@ -981,8 +973,7 @@ class NodeImageModal extends Modal {
     inp.style.width = '100%';
     inp.style.marginBottom = '12px';
 
-    // Lista file immagini recenti nel vault
-    const imgFiles = this.app.vault.getFiles().filter(f => ['png', 'jpg', 'jpeg', 'webp', 'svg', 'gif'].includes(f.extension.toLowerCase()));
+    const imgFiles = this.app.vault.getFiles ? this.app.vault.getFiles().filter(f => ['png', 'jpg', 'jpeg', 'webp', 'svg', 'gif'].includes(f.extension.toLowerCase())) : [];
     if (imgFiles.length > 0) {
       const selectLbl = contentEl.createEl('label', { text: 'Oppure scegli un\'immagine dal tuo Vault:' });
       selectLbl.style.display = 'block';
@@ -1028,7 +1019,7 @@ class NodePdfModal extends Modal {
     contentEl.empty();
     contentEl.createEl('h2', { text: '📄 Collega Documento PDF al Nodo' });
 
-    contentEl.createEl('p', { text: `Nodo: "${(this.node.text || '').slice(0, 35)}..."`, cls: 'cds-mm-modal-sub' });
+    contentEl.createEl('p', { text: 'Nodo: "' + (this.node.text || '').slice(0, 35) + '..."', cls: 'cds-mm-modal-sub' });
 
     const lbl = contentEl.createEl('label', { text: 'Nome o Percorso del File PDF nel Vault:' });
     lbl.style.display = 'block';
@@ -1037,7 +1028,7 @@ class NodePdfModal extends Modal {
     inp.style.width = '100%';
     inp.style.marginBottom = '12px';
 
-    const pdfFiles = this.app.vault.getFiles().filter(f => f.extension.toLowerCase() === 'pdf');
+    const pdfFiles = this.app.vault.getFiles ? this.app.vault.getFiles().filter(f => f.extension.toLowerCase() === 'pdf') : [];
     if (pdfFiles.length > 0) {
       const select = contentEl.createEl('select');
       select.style.width = '100%';
@@ -1134,21 +1125,14 @@ class MindmapExportModal extends Modal {
     this.authorName = 'CDS Studio Architettura';
     this.headerText = 'CDS ARCHITETTURA & DESIGN · MAPPA CONCETTUALE';
     this.stampLogo = '📐 TIMBRO CDS';
-    
-    // Dimensioni e Immagini Personalizzabili (Richiesta Utente)
     this.cartiglioWidth = 320;
     this.cartiglioHeight = 80;
-    this.cartiglioImgUrl = ''; // Immagine logo/cartiglio
-    
     this.includeStamp = true;
     this.stampWidth = 65;
     this.stampHeight = 65;
-    this.stampImgUrl = ''; // Immagine timbro trasparente
-    
     this.includeSignature = true;
     this.signatureWidth = 110;
     this.signatureHeight = 45;
-    this.signatureImgUrl = ''; // Immagine firma autografa trasparente
     this.signatureText = 'Firma: Arch. Vorfreude';
   }
 
@@ -1370,12 +1354,11 @@ class MindmapExportModal extends Modal {
     }
   }
 
-    drawTitleBlockOnCanvas(ctx, w, h, scale) {
+  drawTitleBlockOnCanvas(ctx, w, h, scale) {
     const s = scale || 1;
-    // Header superiore
     if (this.headerText) {
       ctx.fillStyle = '#38bdf8';
-      ctx.font = `bold ${Math.max(9, Math.round(11 * s))}px sans-serif`;
+      ctx.font = 'bold ' + Math.max(9, Math.round(11 * s)) + 'px sans-serif';
       ctx.fillText(this.headerText.slice(0, 60), 16 * s, 22 * s);
     }
 
@@ -1393,23 +1376,21 @@ class MindmapExportModal extends Modal {
     ctx.fillRect(boxX, boxY, boxW, boxH);
     ctx.strokeRect(boxX, boxY, boxW, boxH);
 
-    // Dati Cartiglio
     const pad = 10 * s;
     ctx.fillStyle = '#38bdf8';
-    ctx.font = `bold ${Math.max(8, Math.round(11 * s))}px sans-serif`;
+    ctx.font = 'bold ' + Math.max(8, Math.round(11 * s)) + 'px sans-serif';
     ctx.fillText(this.stampLogo.slice(0, 30), boxX + pad, boxY + (16 * s));
 
     ctx.fillStyle = this.bgStyle === 'light' ? '#0f172a' : '#f8fafc';
-    ctx.font = `bold ${Math.max(8, Math.round(10 * s))}px sans-serif`;
+    ctx.font = 'bold ' + Math.max(8, Math.round(10 * s)) + 'px sans-serif';
     const noteTitle = (this.canvas.rawRootNode.text || 'Mappa').slice(0, 32);
     ctx.fillText(noteTitle, boxX + pad, boxY + (32 * s));
 
     ctx.fillStyle = '#94a3b8';
-    ctx.font = `${Math.max(7, Math.round(9 * s))}px sans-serif`;
+    ctx.font = Math.max(7, Math.round(9 * s)) + 'px sans-serif';
     const dateStr = new Date().toISOString().slice(0, 10);
-    ctx.fillText(`${this.paperSize} ${this.orientation} · ${dateStr} · ${this.authorName.slice(0, 20)}`, boxX + pad, boxY + (48 * s));
+    ctx.fillText(this.paperSize + ' ' + this.orientation + ' · ' + dateStr + ' · ' + this.authorName.slice(0, 20), boxX + pad, boxY + (48 * s));
 
-    // Timbro (a sinistra o dentro il cartiglio)
     if (this.includeStamp) {
       const sW = Math.round(this.stampWidth * s);
       const sH = Math.round(this.stampHeight * s);
@@ -1421,13 +1402,12 @@ class MindmapExportModal extends Modal {
       ctx.strokeRect(stampX, stampY, sW, sH);
 
       ctx.fillStyle = '#f43f5e';
-      ctx.font = `bold ${Math.max(6, Math.round(8 * s))}px sans-serif`;
+      ctx.font = 'bold ' + Math.max(6, Math.round(8 * s)) + 'px sans-serif';
       ctx.fillText('TIMBRO CDS', stampX + (4 * s), stampY + (14 * s));
       ctx.fillText('ORDINE ARCHITETTI', stampX + (4 * s), stampY + (26 * s));
       ctx.fillText('VALIDATO', stampX + (4 * s), stampY + (40 * s));
     }
 
-    // Firma Autografa
     if (this.includeSignature) {
       const sigW = Math.round(this.signatureWidth * s);
       const sigH = Math.round(this.signatureHeight * s);
@@ -1441,7 +1421,7 @@ class MindmapExportModal extends Modal {
       ctx.stroke();
 
       ctx.fillStyle = '#38bdf8';
-      ctx.font = `italic ${Math.max(7, Math.round(9 * s))}px sans-serif`;
+      ctx.font = 'italic ' + Math.max(7, Math.round(9 * s)) + 'px sans-serif';
       ctx.fillText(this.signatureText.slice(0, 22), sigX + (4 * s), sigY + sigH - (6 * s));
     }
   }
@@ -2343,7 +2323,7 @@ class MindmapCanvas {
         node.text += ' ![[' + val + ']]';
       }
       this.render();
-      new Notice('📷 Immagine inserita con successo nel nodo!');
+      new Notice('📷 Immagine inserita nel nodo!');
     }).open();
   }
 
@@ -2351,7 +2331,7 @@ class MindmapCanvas {
     new NodePdfModal(this.app, node, (file, page) => {
       node.text += ' [[' + file + '#page=' + page + '|📄 Pag. ' + page + ']]';
       this.render();
-      new Notice('📄 Collegamento PDF aggiunto al nodo!');
+      new Notice('📄 Collegamento PDF aggiunto!');
     }).open();
   }
 
@@ -2359,646 +2339,8 @@ class MindmapCanvas {
     new NodeLinkModal(this.app, node, (url, label) => {
       node.text += ' [' + label + '](' + url + ')';
       this.render();
-      new Notice('🔗 Collegamento esterno inserito nel nodo!');
+      new Notice('🔗 Collegamento esterno inserito!');
     }).open();
-  }
-
-  setupMinimapEvents();
-
-    // 4. TABELLA E OUTLINE GLOBALI
-    this.tableContainer = this.container.createDiv({ cls: 'cds-mm-table-container' });
-    this.tableContainer.style.display = 'none';
-
-    this.outlineContainer = this.container.createDiv({ cls: 'cds-mm-outline-container' });
-    this.outlineContainer.style.display = 'none';
-
-    // Eventi Canvas
-    this.viewport.addEventListener('mousedown', (e) => this.onMouseDown(e));
-    window.addEventListener('mousemove', (e) => this.onMouseMove(e));
-    window.addEventListener('mouseup', (e) => this.onMouseUp(e));
-    this.viewport.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
-
-    // Tastiera
-    this.container.setAttribute('tabindex', '0');
-    this.container.addEventListener('keydown', (e) => this.onKeyDown(e));
-  }
-
-  renderTopDock() {
-    this.topDock.empty();
-
-    // GRUPPO 1: VISTE MULTIPLE
-    const groupViews = this.topDock.createDiv({ cls: 'cds-mm-dock-group' });
-    groupViews.createSpan({ text: 'Vista:', cls: 'cds-mm-dock-label' });
-
-    const mkViewBtn = (id, label, icon) => {
-      const b = groupViews.createEl('button', {
-        cls: 'cds-mm-dock-btn' + (this.viewMode === id ? ' is-active' : ''),
-        attr: { title: `Passa a vista ${label}` }
-      });
-      b.innerHTML = `${icon} <span class="cds-mm-btn-text">${label}</span>`;
-      b.onmousedown = (e) => e.stopPropagation();
-      b.onclick = (e) => {
-        e.stopPropagation();
-        this.viewMode = id;
-        this.renderTopDock();
-        this.render();
-      };
-      return b;
-    };
-
-    mkViewBtn('radial', 'Radiale 360°', '🌟');
-    mkViewBtn('bilateral', 'Bilaterale', '🧠');
-    mkViewBtn('right', 'A Destra', '🌿');
-    mkViewBtn('table', 'Tabella', '📊');
-    mkViewBtn('outline', 'Outline', '📑');
-
-    const btnOrganic = groupViews.createEl('button', {
-      cls: 'cds-mm-dock-btn' + (this.isOrganicView ? ' is-active' : ''),
-      attr: { title: 'Alterna Stile Caselle e Vista Organica (senza box)' }
-    });
-    btnOrganic.innerHTML = `🌿 <span class="cds-mm-btn-text">${this.isOrganicView ? 'Organica' : 'Caselle'}</span>`;
-    btnOrganic.onmousedown = (e) => e.stopPropagation();
-    btnOrganic.onclick = (e) => {
-      e.stopPropagation();
-      this.isOrganicView = !this.isOrganicView;
-      btnOrganic.innerHTML = `🌿 <span class="cds-mm-btn-text">${this.isOrganicView ? 'Organica' : 'Caselle'}</span>`;
-      btnOrganic.classList.toggle('is-active', this.isOrganicView);
-      this.render();
-    };
-
-    // GRUPPO 2: DETTAGLIO
-    const groupDetail = this.topDock.createDiv({ cls: 'cds-mm-dock-group' });
-    groupDetail.createSpan({ text: 'Dettaglio:', cls: 'cds-mm-dock-label' });
-
-    const mkDetailBtn = (lvl, label, icon, tip) => {
-      const b = groupDetail.createEl('button', {
-        cls: 'cds-mm-dock-btn' + (this.detailLevel === lvl ? ' is-active' : ''),
-        attr: { title: tip }
-      });
-      b.innerHTML = `${icon} <span class="cds-mm-btn-text">${label}</span>`;
-      b.onmousedown = (e) => e.stopPropagation();
-      b.onclick = (e) => {
-        e.stopPropagation();
-        this.detailLevel = lvl;
-        this.renderTopDock();
-        this.render();
-      };
-      return b;
-    };
-
-    mkDetailBtn('titles', 'Titoli', '🏷️', 'Mostra solo la gerarchia H1..H6');
-    mkDetailBtn('keypoints', 'Punti Chiave', '🎯', 'Mostra titoli e concetti chiave');
-    mkDetailBtn('full', 'Tutto', '📖', 'Mostra testo completo dei paragrafi');
-
-    // GRUPPO 3: STRUMENTI & OPERAZIONI
-    const groupTools = this.topDock.createDiv({ cls: 'cds-mm-dock-group' });
-
-    const mkToolBtn = (icon, tip, onClick, isActive = false) => {
-      const b = groupTools.createEl('button', {
-        cls: 'cds-mm-dock-btn' + (isActive ? ' is-active' : ''),
-        attr: { title: tip }
-      });
-      b.innerHTML = icon;
-      b.onmousedown = (e) => e.stopPropagation();
-      b.onclick = (e) => { e.stopPropagation(); onClick(); };
-      return b;
-    };
-
-    mkToolBtn('➕ <span class="cds-mm-btn-text">Figlio</span>', 'Aggiungi Nodo Figlio (Tab)', () => this.addChildToSelected());
-    mkToolBtn('⏬ <span class="cds-mm-btn-text">Fratello</span>', 'Aggiungi Nodo Fratello (Enter)', () => this.addSiblingToSelected());
-    mkToolBtn('🗑️', 'Elimina Nodo (Canc)', () => this.deleteSelected());
-
-    groupTools.createDiv({ cls: 'cds-mm-divider' });
-
-    mkToolBtn('🔍 Adatta', 'Visualizza Intera Mappa nello Schermo (Fit-All)', () => this.fitToScreen());
-    mkToolBtn('🧭 Centra', 'Centra la radice della mappa (Ctrl+E)', () => this.centerRoot());
-    mkToolBtn('🔄 Reset', 'Reimposta posizioni automatiche', () => this.resetCustomPositions());
-
-    // Toggle Foglio di Stampa su Canvas
-    mkToolBtn('📄 <span class="cds-mm-btn-text">Foglio Stampa</span>', 'Mostra / Nascondi perimetro foglio A0-A6 sul canvas', () => this.toggleSheetOverlay(), this.showSheetOverlay);
-    mkToolBtn('🗺️', 'Attiva/Disattiva Minimap', () => this.toggleMinimap());
-
-    groupTools.createDiv({ cls: 'cds-mm-divider' });
-
-    mkToolBtn('📤 Esporta HD', 'Esporta nei formati da A0 ad A6 (PNG, JPG, PDF, SVG Vettoriale)', () => this.openExportModal());
-  }
-
-  toggleSheetOverlay() {
-    this.showSheetOverlay = !this.showSheetOverlay;
-    this.renderTopDock();
-    this.render();
-    if (this.showSheetOverlay) {
-      new Notice(`📄 Riquadro foglio di stampa attivo (${this.sheetFormat} ${this.sheetOrientation})`);
-    }
-  }
-
-  render() {
-    if (this.viewMode === 'table') {
-      this.viewport.style.display = 'none';
-      this.outlineContainer.style.display = 'none';
-      this.tableContainer.style.display = 'block';
-      this.minimapWrap.style.display = 'none';
-      this.renderTableView();
-      return;
-    }
-
-    if (this.viewMode === 'outline') {
-      this.viewport.style.display = 'none';
-      this.tableContainer.style.display = 'none';
-      this.outlineContainer.style.display = 'block';
-      this.minimapWrap.style.display = 'none';
-      this.renderOutlineView();
-      return;
-    }
-
-    this.tableContainer.style.display = 'none';
-    this.outlineContainer.style.display = 'none';
-    this.viewport.style.display = 'block';
-    this.minimapWrap.style.display = this.showMinimap ? 'block' : 'none';
-
-    const activeTree = MindmapEngine.filterTreeByDetail(this.rawRootNode, this.detailLevel);
-
-    let layout;
-    if (this.viewMode === 'radial') {
-      layout = MindmapEngine.computeRadialLayout(activeTree, { detailLevel: this.detailLevel });
-    } else if (this.viewMode === 'bilateral') {
-      layout = MindmapEngine.computeBilateralLayout(activeTree, { detailLevel: this.detailLevel });
-    } else {
-      layout = MindmapEngine.computeRightLayout(activeTree, { detailLevel: this.detailLevel });
-    }
-
-    this.renderedNodes = layout.nodes;
-    this.renderedPaths = layout.paths;
-
-    while (this.svgLayer.firstChild) {
-      this.svgLayer.removeChild(this.svgLayer.firstChild);
-    }
-
-    let minX = 0, minY = 0, maxX = 2800, maxY = 2400;
-
-    for (const p of this.renderedPaths) {
-      const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      pathEl.setAttribute('d', p.d);
-      pathEl.setAttribute('stroke', p.color);
-      pathEl.setAttribute('class', 'cds-mm-branch-path' + (p.toId === this.selectedNodeId ? ' is-selected' : ''));
-      pathEl.setAttribute('data-from', p.fromId);
-      pathEl.setAttribute('data-to', p.toId);
-      this.svgLayer.appendChild(pathEl);
-    }
-
-    this.nodesLayer.empty();
-    let selectedNodeEl = null;
-
-    for (const node of this.renderedNodes) {
-      if (node.x + node.width > maxX) maxX = node.x + node.width + 220;
-      if (node.y + node.height > maxY) maxY = node.y + node.height + 220;
-
-      const isSelected = node.id === this.selectedNodeId;
-
-      const nodeEl = this.nodesLayer.createDiv({
-        cls: 'cds-mm-node' +
-          (node.isRoot ? ' is-root' : ` level-${node.depth}`) +
-          ((this.isOrganicView || node.isOrganic) ? ' is-organic' : '') +
-          (node.type === 'keypoint' ? ' is-keypoint' : '') +
-          (node.layout === 'table' ? ' is-table-node' : '') +
-          (isSelected ? ' is-selected' : '') +
-          (node.direction === 'left' ? ' is-left' : ' is-right')
-      });
-
-      nodeEl.setAttribute('data-node-id', node.id);
-      nodeEl.style.left = `${node.x}px`;
-      nodeEl.style.top = `${node.y}px`;
-      nodeEl.style.width = `${node.width}px`;
-      nodeEl.style.borderColor = node.isRoot ? 'rgba(255,255,255,0.5)' : node.color || '#38bdf8';
-
-      if (isSelected) selectedNodeEl = nodeEl;
-
-      // Resize handle stile Canvas
-      const resizeHandle = nodeEl.createDiv({ cls: 'cds-mm-resize-handle', attr: { title: 'Trascina per ridimensionare il nodo' } });
-      resizeHandle.onmousedown = (ev) => {
-        ev.stopPropagation();
-        ev.preventDefault();
-        this.initNodeResize(node, nodeEl, ev);
-      };
-
-      if (node.layout === 'table') {
-        this.renderEmbeddedTableNode(node, nodeEl);
-      } else {
-        const headerRow = nodeEl.createDiv({ cls: 'cds-mm-node-header' });
-
-        if (node.isRoot) {
-          headerRow.createSpan({ text: '🗺️ Titolo Mappa', cls: 'cds-mm-root-badge' });
-        } else if (node.type === 'keypoint') {
-          headerRow.createSpan({ text: '🎯', cls: 'cds-mm-kp-badge' });
-        } else if (node.depth === 1) {
-          headerRow.createSpan({ text: '🏷️ Cap.', cls: 'cds-mm-chap-badge' });
-        }
-
-        const titleEl = headerRow.createDiv({ cls: 'cds-mm-node-title' });
-
-        // Rendering sincrono immediato e garantito
-        titleEl.innerHTML = MindmapEngine.renderMiniMarkdown(node.text);
-
-        if (node.images && node.images.length) {
-          const imgWrap = nodeEl.createDiv({ cls: 'cds-mm-node-img-wrap' });
-          for (const img of node.images) {
-            let src = img.path;
-            if (img.type === 'vault' && this.app) {
-              const f = this.app.metadataCache.getFirstLinkpathDest(img.path, this.filePath);
-              if (f) src = this.app.vault.getResourcePath(f);
-            }
-            const imgEl = imgWrap.createEl('img', { cls: 'cds-mm-node-thumb', attr: { src } });
-            imgEl.onclick = (ev) => {
-              ev.stopPropagation();
-              window.open(src, '_blank');
-            };
-          }
-        }
-
-        if (node.bodyText) {
-          if (this.detailLevel === 'full' || this.expandedNodes.has(node.id)) {
-            const bodyEl = nodeEl.createDiv({ cls: 'cds-mm-node-body' });
-            bodyEl.innerHTML = MindmapEngine.renderMiniMarkdown(node.bodyText);
-          } else if (this.detailLevel === 'keypoints') {
-            const toggle = nodeEl.createDiv({ cls: 'cds-mm-expand-toggle' });
-            toggle.textContent = '… Dettagli testo';
-            toggle.onmousedown = (ev) => ev.stopPropagation();
-            toggle.onclick = (ev) => {
-              ev.stopPropagation();
-              this.expandedNodes.add(node.id);
-              this.render();
-            };
-          }
-        }
-
-        if (node.pdfLink) {
-          const badge = nodeEl.createDiv({ cls: 'cds-mm-pdf-badge' });
-          badge.innerHTML = `📄 <b>${node.pdfLink.file}</b> · Pag. ${node.pdfLink.page}`;
-          badge.onmousedown = (ev) => ev.stopPropagation();
-          badge.onclick = (ev) => {
-            ev.stopPropagation();
-            if (this.options.onPdfJump) this.options.onPdfJump(node.pdfLink);
-          };
-        }
-
-        if (node.children && node.children.length) {
-          const foldBtn = nodeEl.createDiv({
-            cls: 'cds-mm-fold-btn' + (node.collapsed ? ' is-collapsed' : '')
-          });
-          foldBtn.textContent = node.collapsed ? `+${node.children.length}` : '−';
-          foldBtn.onmousedown = (ev) => ev.stopPropagation();
-          foldBtn.onclick = (ev) => {
-            ev.stopPropagation();
-            const raw = this.findRawNode(node.id);
-            if (raw) raw.collapsed = !raw.collapsed;
-            node.collapsed = !node.collapsed;
-            this.render();
-          };
-        }
-      }
-
-      // Click delegation per wikilink, collegamenti esterni e note ipertestuali
-      nodeEl.onclick = (ev) => {
-        const wikiLink = ev.target.closest('.cds-mm-wikilink');
-        if (wikiLink && (ev.ctrlKey || ev.metaKey)) {
-          ev.stopPropagation();
-          ev.preventDefault();
-          const target = wikiLink.getAttribute('data-target');
-          if (target && this.app) {
-            this.app.workspace.openLinkText(target, this.filePath || '', true);
-          }
-          return;
-        }
-
-        const extLink = ev.target.closest('a.cds-mm-ext-link');
-        if (extLink) {
-          ev.stopPropagation();
-          return; // Apre direttamente in browser con target="_blank"
-        }
-
-        const footnote = ev.target.closest('.cds-mm-footnote');
-        if (footnote) {
-          ev.stopPropagation();
-          const fnId = footnote.getAttribute('data-footnote');
-          if (this.options.onNodeClick) {
-            this.options.onNodeClick({ ...node, text: `[^${fnId}]` });
-          }
-          return;
-        }
-      };
-
-      nodeEl.onmousedown = (ev) => {
-        if (((ev.ctrlKey || ev.metaKey) && ev.target.closest('.cds-mm-wikilink')) || ev.target.closest('a') || ev.target.closest('.cds-mm-pdf-badge') || ev.target.closest('.cds-mm-fold-btn') || ev.target.closest('.cds-mm-footnote')) {
-          ev.stopPropagation();
-          return;
-        }
-
-        ev.stopPropagation();
-        this.selectNode(node.id);
-
-        if (this.options.onNodeClick) {
-          this.options.onNodeClick(node);
-        }
-
-        if (ev.button === 0 && !node.isRoot) {
-          this.initNodeDrag(node, nodeEl, ev);
-        }
-      };
-
-      nodeEl.ondblclick = (ev) => {
-        ev.stopPropagation();
-        if (node.layout !== 'table') {
-          this.startEditing(node, nodeEl);
-        }
-      };
-    }
-
-    this.svgLayer.setAttribute('width', `${maxX + 400}`);
-    this.svgLayer.setAttribute('height', `${maxY + 400}`);
-    this.stage.style.width = `${maxX + 400}px`;
-    this.stage.style.height = `${maxY + 400}px`;
-
-    // Render Overlay Foglio Stampa sul Canvas se attivo
-    this.renderCanvasSheetOverlay();
-
-    this.updateFloatingBar(selectedNodeEl);
-    this.updateTransform();
-    this.updateMinimap();
-  }
-
-  renderCanvasSheetOverlay() {
-    if (!this.showSheetOverlay) {
-      this.sheetOverlayEl.style.display = 'none';
-      return;
-    }
-
-    this.sheetOverlayEl.style.display = 'block';
-    this.sheetOverlayEl.empty();
-
-    // Calcolo dimensioni foglio
-    const nodes = this.renderedNodes || [];
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const n of nodes) {
-      if (n.x < minX) minX = n.x;
-      if (n.y < minY) minY = n.y;
-      if (n.x + n.width > maxX) maxX = n.x + n.width;
-      if (n.y + n.height > maxY) maxY = n.y + n.height;
-    }
-
-    const padding = 80;
-    const contentW = (maxX - minX) + padding * 2;
-    const contentH = (maxY - minY) + padding * 2;
-
-    const p = PAPER_SIZES[this.sheetFormat] || PAPER_SIZES.A3;
-    const baseMin = Math.min(p.w, p.h);
-    const baseMax = Math.max(p.w, p.h);
-    const isLandscape = this.sheetOrientation === 'landscape';
-    const sheetW = isLandscape ? baseMax : baseMin;
-    const sheetH = isLandscape ? baseMin : baseMax;
-    const sheetRatio = sheetW / sheetH;
-
-    let targetW, targetH;
-    if (contentW / contentH > sheetRatio) {
-      targetW = contentW;
-      targetH = contentW / sheetRatio;
-    } else {
-      targetH = contentH;
-      targetW = contentH * sheetRatio;
-    }
-
-    const sheetX = minX - padding - (targetW - contentW) / 2;
-    const sheetY = minY - padding - (targetH - contentH) / 2;
-
-    this.sheetOverlayEl.style.left = `${sheetX}px`;
-    this.sheetOverlayEl.style.top = `${sheetY}px`;
-    this.sheetOverlayEl.style.width = `${targetW}px`;
-    this.sheetOverlayEl.style.height = `${targetH}px`;
-
-    // Banner superiore con titolo
-    const banner = this.sheetOverlayEl.createDiv({ cls: 'cds-mm-sheet-banner' });
-    banner.innerHTML = `📄 <b>FOGLIO DI STAMPA: ${this.sheetFormat} ${isLandscape ? 'ORIZZONTALE' : 'VERTICALE'}</b> · Sposta i nodi liberamente per comporli nel foglio`;
-
-    // Cartiglio nel foglio
-    const titleBlock = this.sheetOverlayEl.createDiv({ cls: 'cds-mm-sheet-cartiglio' });
-    titleBlock.innerHTML = `
-      <div class="cds-mm-cart-title">📐 CDS STUDIO ARCHITETTURA</div>
-      <div class="cds-mm-cart-sub">${this.rawRootNode.text || 'Mappa Concettuale'}</div>
-      <div class="cds-mm-cart-meta">${this.sheetFormat} ${this.sheetOrientation} · Scala Grafica 1:1</div>
-    `;
-  }
-
-  initNodeResize(node, nodeEl, ev) {
-    const startX = ev.clientX;
-    const startY = ev.clientY;
-    const startW = node.width;
-    const startH = node.height;
-
-    const onMove = (moveEv) => {
-      const dw = (moveEv.clientX - startX) / this.zoom;
-      const dh = (moveEv.clientY - startY) / this.zoom;
-      const newW = Math.max(120, Math.round(startW + dw));
-      const newH = Math.max(40, Math.round(startH + dh));
-
-      node.width = newW;
-      node.height = newH;
-      node.customWidth = newW;
-      node.customHeight = newH;
-
-      nodeEl.style.width = `${newW}px`;
-      nodeEl.style.height = `${newH}px`;
-
-      const raw = this.findRawNode(node.id);
-      if (raw) {
-        raw.customWidth = newW;
-        raw.customHeight = newH;
-      }
-
-      this.updateBranchPathsRealtime();
-    };
-
-    const onUp = () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-      MindmapEngine.resolveCollisions(this.renderedNodes, 20);
-      this.render();
-    };
-
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-  }
-
-  renderEmbeddedTableNode(node, nodeEl) {
-    const topBar = nodeEl.createDiv({ cls: 'cds-mm-table-node-top' });
-    topBar.createSpan({ cls: 'cds-mm-table-node-title', text: node.text });
-
-    const tools = topBar.createDiv({ cls: 'cds-mm-table-node-tools' });
-
-    const bBranch = tools.createEl('button', { cls: 'cds-mm-mini-btn', text: '🧠 Ramo', attr: { title: 'Ritorna a vista ramificata' } });
-    bBranch.onmousedown = (e) => e.stopPropagation();
-    bBranch.onclick = (e) => {
-      e.stopPropagation();
-      node.layout = 'default';
-      const raw = this.findRawNode(node.id);
-      if (raw) raw.layout = 'default';
-      this.render();
-      this.triggerSave();
-    };
-
-    const bAddRow = tools.createEl('button', { cls: 'cds-mm-mini-btn', text: '+ Riga', attr: { title: 'Aggiungi nuova riga' } });
-    bAddRow.onmousedown = (e) => e.stopPropagation();
-    bAddRow.onclick = (e) => {
-      e.stopPropagation();
-      if (!node.tableData) node.tableData = { headers: ['Elemento', 'Valore / Note'], rows: [] };
-      node.tableData.rows.push(['Nuovo Dato', '—']);
-      const raw = this.findRawNode(node.id);
-      if (raw) raw.tableData = node.tableData;
-      this.render();
-      this.triggerSave();
-    };
-
-    const tableWrap = nodeEl.createDiv({ cls: 'cds-mm-node-table-embed' });
-    const table = tableWrap.createEl('table');
-    const thead = table.createEl('thead');
-    if (node.tableData && node.tableData.title) {
-      const trTitle = thead.createEl('tr');
-      const thTitle = trTitle.createEl('th', { attr: { colspan: Math.max(2, (node.tableData.headers || []).length) } });
-      thTitle.className = 'cds-mm-table-super-header';
-      thTitle.textContent = node.tableData.title;
-    }
-    const trH = thead.createEl('tr');
-
-    const headers = (node.tableData && node.tableData.headers && node.tableData.headers.length)
-      ? node.tableData.headers
-      : ['Punto Chiave / Parametro', 'Valore / Dettaglio'];
-
-    headers.forEach((h, hIdx) => {
-      const th = trH.createEl('th');
-      const thCell = th.createDiv({ cls: 'cds-mm-th-cell', text: h });
-      thCell.contentEditable = 'true';
-      thCell.onmousedown = (e) => e.stopPropagation();
-      thCell.onblur = () => {
-        headers[hIdx] = thCell.textContent.trim();
-        if (!node.tableData) node.tableData = { headers, rows: [] };
-        node.tableData.headers = headers;
-        const raw = this.findRawNode(node.id);
-        if (raw) raw.tableData = node.tableData;
-        this.triggerSave();
-      };
-    });
-
-    const tbody = table.createEl('tbody');
-    const rows = (node.tableData && node.tableData.rows) ? node.tableData.rows : [];
-
-    if (!rows.length && node.children && node.children.length) {
-      for (const ch of node.children) {
-        rows.push([ch.text, ch.bodyText || '—']);
-      }
-      if (!node.tableData) node.tableData = { headers, rows };
-    }
-
-    rows.forEach((row, rIdx) => {
-      const tr = tbody.createEl('tr');
-      row.forEach((cellVal, cIdx) => {
-        const td = tr.createEl('td');
-        const tdCell = td.createDiv({ cls: 'cds-mm-td-cell', text: cellVal });
-        tdCell.contentEditable = 'true';
-        tdCell.onmousedown = (e) => e.stopPropagation();
-        tdCell.onblur = () => {
-          row[cIdx] = tdCell.textContent.trim();
-          const raw = this.findRawNode(node.id);
-          if (raw && raw.tableData) raw.tableData.rows[rIdx] = row;
-          this.triggerSave();
-        };
-      });
-    });
-  }
-
-  updateFloatingBar(selectedEl) {
-    if (!selectedEl || this.selectedNodeId === 'root') {
-      this.floatingBar.style.display = 'none';
-      return;
-    }
-
-    const rawNode = this.findRawNode(this.selectedNodeId);
-    if (!rawNode) {
-      this.floatingBar.style.display = 'none';
-      return;
-    }
-
-    this.floatingBar.empty();
-    this.floatingBar.style.display = 'flex';
-
-    const mkFloatBtn = (iconText, title, onClick) => {
-      const b = this.floatingBar.createEl('button', { cls: 'cds-mm-float-btn', attr: { title } });
-      b.innerHTML = iconText;
-      b.onmousedown = (e) => { e.preventDefault(); e.stopPropagation(); };
-      b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); onClick(); };
-      return b;
-    };
-
-    mkFloatBtn('➕ Figlio', 'Aggiungi nodo figlio (Tab)', () => this.addChildToSelected());
-    mkFloatBtn('⏬ Fratello', 'Aggiungi nodo fratello (Enter)', () => this.addSiblingToSelected());
-
-    const isTable = rawNode.layout === 'table';
-    mkFloatBtn(isTable ? '🧠 Mappa' : '📊 Tabella', isTable ? 'Ritorna a Ramo Mappa' : 'Converti in Tabella', () => this.toggleTableLayoutSelected());
-    
-    if (rawNode.children && rawNode.children.length) {
-      mkFloatBtn(rawNode.collapsed ? '👁️ Mostra' : '👁️ Riduci', rawNode.collapsed ? 'Espandi nodi figli' : 'Riduci e nascondi rami figli', () => {
-        rawNode.collapsed = !rawNode.collapsed;
-        this.render();
-        this.triggerSave();
-      });
-    }
-
-    mkFloatBtn('📷 Foto', 'Inserisci Immagine nel nodo', () => this.promptInsertImage(rawNode));
-    mkFloatBtn('📄 PDF', 'Collega Documento PDF', () => this.promptInsertPdf(rawNode));
-    mkFloatBtn('🔗 Link', 'Inserisci Collegamento Esterno', () => this.promptInsertLink(rawNode));
-
-    mkFloatBtn('✏️', 'Modifica Testo (F2)', () => this.startEditing(rawNode, selectedEl));
-    mkFloatBtn('🗑️', 'Elimina Nodo (Canc)', () => this.deleteSelected());
-
-    const nodeX = parseFloat(selectedEl.style.left) || 0;
-    const nodeY = parseFloat(selectedEl.style.top) || 0;
-    const nodeW = parseFloat(selectedEl.style.width) || 160;
-
-    this.floatingBar.style.left = `${nodeX + (nodeW / 2)}px`;
-    this.floatingBar.style.top = `${nodeY - 14}px`;
-  }
-
-  promptInsertImage(node) {
-    const input = prompt('Inserisci il nome del file immagine nel vault (es: schema.png) o un URL web:');
-    if (!input || !input.trim()) return;
-    const clean = input.trim();
-    if (clean.startsWith('http')) {
-      node.text += ` ![immagine](${clean})`;
-    } else {
-      node.text += ` ![[${clean}]]`;
-    }
-    this.render();
-    this.triggerSave();
-    new Notice('📷 Immagine inserita nel nodo!');
-  }
-
-  promptInsertPdf(node) {
-    const fileName = prompt('Nome del documento PDF nel vault (es: Relazione.pdf):');
-    if (!fileName || !fileName.trim()) return;
-    const page = prompt('Numero di pagina:', '1');
-    const clean = fileName.trim();
-    const pNum = parseInt(page || '1', 10) || 1;
-    node.text += ` [[${clean}#page=${pNum}|📄 Pag. ${pNum}]]`;
-    this.render();
-    this.triggerSave();
-    new Notice('📄 Collegamento PDF aggiunto!');
-  }
-
-  promptInsertLink(node) {
-    const url = prompt('Inserisci URL esterno (es: https://esempio.com):');
-    if (!url || !url.trim()) return;
-    const label = prompt('Testo del link:', 'Sito Web');
-    node.text += ` [${label || 'Link'}](${url.trim()})`;
-    this.render();
-    this.triggerSave();
-    new Notice('🔗 Collegamento esterno inserito!');
   }
 
   setupMinimapEvents() {
