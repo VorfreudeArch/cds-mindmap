@@ -31,6 +31,20 @@ const CUSTOM_POSITIONS_CACHE = new Map();
 // ==========================================================================
 
 class MindmapEngine {
+  static generateBranchPath(x1, y1, x2, y2, isRight, style = 'curved') {
+    if (style === 'orthogonal') {
+      const midX = Math.round((x1 + x2) / 2);
+      return `M ${x1} ${y1} H ${midX} V ${y2} H ${x2}`;
+    }
+    if (style === 'straight') {
+      return `M ${x1} ${y1} L ${x2} ${y2}`;
+    }
+    const dx = Math.abs(x2 - x1) * 0.55;
+    return isRight
+      ? `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`
+      : `M ${x1} ${y1} C ${x1 - dx} ${y1}, ${x2 + dx} ${y2}, ${x2} ${y2}`;
+  }
+
   static generateDeterministicId(parentPath, index, text) {
     const clean = (text || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10);
     return parentPath ? `${parentPath}_${index}_${clean}` : 'root';
@@ -620,6 +634,7 @@ class MindmapEngine {
     const detailLevel = options.detailLevel || 'keypoints';
     const horizontalGap = options.horizontalGap || 135;
     const verticalGap = options.verticalGap || 40;
+    const connectorStyle = options.connectorStyle || 'curved';
 
     MindmapEngine.measureNode(rootNode, detailLevel);
 
@@ -679,14 +694,14 @@ class MindmapEngine {
       const dx = Math.abs(targetX - startX) * 0.55;
 
       branchPaths.push({
-        d: 'M ' + startX + ' ' + startY + ' C ' + (startX + (isRight ? dx : -dx)) + ' ' + startY + ', ' + (targetX + (isRight ? -dx : dx)) + ' ' + targetY + ', ' + targetX + ' ' + targetY,
+        d: MindmapEngine.generateBranchPath(startX, startY, targetX, targetY, isRight, connectorStyle),
         color,
         fromId: rootNode.id,
         toId: chap.id,
         edgeText: chap.edgeText || ''
       });
 
-      MindmapEngine.positionSubChildren(chap, color, chap.direction, horizontalGap, renderedNodes, branchPaths, verticalGap);
+      MindmapEngine.positionSubChildren(chap, color, chap.direction, horizontalGap, renderedNodes, branchPaths, verticalGap, connectorStyle);
     }
 
     MindmapEngine.resolveCollisions(renderedNodes, 45, 34);
@@ -699,6 +714,7 @@ class MindmapEngine {
   static computeBilateralLayout(rootNode, options = {}) {
     const horizontalGap = options.horizontalGap || 135;
     const verticalGap = options.verticalGap || 42;
+    const connectorStyle = options.connectorStyle || 'curved';
     const detailLevel = options.detailLevel || 'keypoints';
 
     MindmapEngine.measureNode(rootNode, detailLevel);
@@ -775,9 +791,7 @@ class MindmapEngine {
         const dx = Math.abs(x2 - x1) * 0.55;
 
         branchPaths.push({
-          d: isRight
-            ? 'M ' + x1 + ' ' + y1 + ' C ' + (x1 + dx) + ' ' + y1 + ', ' + (x2 - dx) + ' ' + y2 + ', ' + x2 + ' ' + y2
-            : 'M ' + x1 + ' ' + y1 + ' C ' + (x1 - dx) + ' ' + y1 + ', ' + (x2 + dx) + ' ' + y2 + ', ' + x2 + ' ' + y2,
+          d: MindmapEngine.generateBranchPath(x1, y1, x2, y2, isRight, connectorStyle),
           color,
           fromId: parent.id,
           toId: child.id,
@@ -812,7 +826,7 @@ class MindmapEngine {
       const dx = Math.abs(x2 - x1) * 0.55;
 
       branchPaths.push({
-        d: 'M ' + x1 + ' ' + y1 + ' C ' + (x1 + dx) + ' ' + y1 + ', ' + (x2 - dx) + ' ' + y2 + ', ' + x2 + ' ' + y2,
+        d: MindmapEngine.generateBranchPath(x1, y1, x2, y2, true, connectorStyle),
         color,
         fromId: rootNode.id,
         toId: chap.id,
@@ -846,7 +860,7 @@ class MindmapEngine {
       const dx = Math.abs(x1 - x2) * 0.55;
 
       branchPaths.push({
-        d: 'M ' + x1 + ' ' + y1 + ' C ' + (x1 - dx) + ' ' + y1 + ', ' + (x2 + dx) + ' ' + y2 + ', ' + x2 + ' ' + y2,
+        d: MindmapEngine.generateBranchPath(x1, y1, x2, y2, false, connectorStyle),
         color,
         fromId: rootNode.id,
         toId: chap.id,
@@ -867,6 +881,7 @@ class MindmapEngine {
   static computeRightLayout(rootNode, options = {}) {
     const horizontalGap = options.horizontalGap || 135;
     const verticalGap = options.verticalGap || 42;
+    const connectorStyle = options.connectorStyle || 'curved';
     const detailLevel = options.detailLevel || 'keypoints';
 
     MindmapEngine.measureNode(rootNode, detailLevel);
@@ -924,7 +939,7 @@ class MindmapEngine {
         const dx = Math.abs(x2 - x1) * 0.55;
 
         branchPaths.push({
-          d: 'M ' + x1 + ' ' + y1 + ' C ' + (x1 + dx) + ' ' + y1 + ', ' + (x2 - dx) + ' ' + y2 + ', ' + x2 + ' ' + y2,
+          d: MindmapEngine.generateBranchPath(x1, y1, x2, y2, true, connectorStyle),
           color,
           fromId: parent.id,
           toId: child.id,
@@ -959,7 +974,7 @@ class MindmapEngine {
       const dx = Math.abs(x2 - x1) * 0.55;
 
       branchPaths.push({
-        d: 'M ' + x1 + ' ' + y1 + ' C ' + (x1 + dx) + ' ' + y1 + ', ' + (x2 - dx) + ' ' + y2 + ', ' + x2 + ' ' + y2,
+        d: MindmapEngine.generateBranchPath(x1, y1, x2, y2, true, connectorStyle),
         color,
         fromId: rootNode.id,
         toId: chap.id,
@@ -974,7 +989,7 @@ class MindmapEngine {
     return { nodes: renderedNodes, paths: branchPaths, root: rootNode };
   }
 
-  static positionSubChildren(parent, color, direction, horizontalGap, renderedNodes, branchPaths, verticalGap = 40) {
+  static positionSubChildren(parent, color, direction, horizontalGap, renderedNodes, branchPaths, verticalGap = 40, connectorStyle = 'curved') {
     if (!parent.children || !parent.children.length || parent.layout === 'table' || parent.collapsed) return;
 
     let startY = parent.y + (parent.height / 2) - (parent.subtreeHeight / 2);
@@ -1002,9 +1017,7 @@ class MindmapEngine {
       const dx = Math.abs(targetX - startX) * 0.55;
 
       branchPaths.push({
-        d: isRight
-          ? 'M ' + startX + ' ' + startYPoint + ' C ' + (startX + dx) + ' ' + startYPoint + ', ' + (targetX - dx) + ' ' + targetYPoint + ', ' + targetX + ' ' + targetYPoint
-          : 'M ' + startX + ' ' + startYPoint + ' C ' + (startX - dx) + ' ' + startYPoint + ', ' + (targetX + dx) + ' ' + targetYPoint + ', ' + targetX + ' ' + targetYPoint,
+        d: MindmapEngine.generateBranchPath(startX, startYPoint, targetX, targetYPoint, isRight, connectorStyle),
         color,
         fromId: parent.id,
         toId: child.id,
@@ -1014,7 +1027,7 @@ class MindmapEngine {
       startY += child.subtreeHeight;
 
       if (child.layout !== 'table') {
-        MindmapEngine.positionSubChildren(child, color, direction, horizontalGap, renderedNodes, branchPaths, verticalGap);
+        MindmapEngine.positionSubChildren(child, color, direction, horizontalGap, renderedNodes, branchPaths, verticalGap, connectorStyle);
       }
     }
   }
@@ -1286,6 +1299,14 @@ class MindmapExportModal extends Modal {
     blockCb.onchange = () => {
       this.includeTitleBlock = blockCb.checked;
       this.updatePreview();
+    };
+
+    const multiBox = sidebar.createDiv({ cls: 'cds-mm-export-cartiglio-box', attr: { style: 'margin-top:6px;border-top:1px solid rgba(255,255,255,0.08);padding-top:6px;' } });
+    const multiCb = multiBox.createEl('input', { type: 'checkbox', attr: { id: 'cds-cb-multi' } });
+    multiCb.checked = !!this.isMultipageFascicolo;
+    const multiLbl = multiBox.createEl('label', { text: ' 📑 Fascicolo Tecnico Multipagina (Panoramica + Tavole Capitoli Singoli)', attr: { for: 'cds-cb-multi' } });
+    multiCb.onchange = () => {
+      this.isMultipageFascicolo = multiCb.checked;
     };
 
     sidebar.createEl('label', { text: 'Intestazione Mappa (Header Top):', cls: 'cds-mm-export-label' });
@@ -1596,24 +1617,65 @@ class MindmapExportModal extends Modal {
       const dataUrl = exportCanvas.toDataURL('image/jpeg', 0.95);
       const printWindow = window.open('', '_blank');
       if (printWindow) {
+        let pagesHtml = `<div class="print-page"><img src="${dataUrl}" /></div>`;
+
+        if (this.isMultipageFascicolo && this.canvas.rawRootNode && this.canvas.rawRootNode.children) {
+          const chapters = this.canvas.rawRootNode.children;
+          chapters.forEach((chap, cIdx) => {
+            const chapCanvas = document.createElement('canvas');
+            chapCanvas.width = exportCanvas.width;
+            chapCanvas.height = exportCanvas.height;
+            const cCtx = chapCanvas.getContext('2d');
+
+            cCtx.fillStyle = this.bgStyle === 'light' ? '#ffffff' : '#0d1117';
+            cCtx.fillRect(0, 0, chapCanvas.width, chapCanvas.height);
+
+            cCtx.fillStyle = '#38bdf8';
+            cCtx.font = 'bold 22px sans-serif';
+            cCtx.fillText('TAVOLA ' + (cIdx + 2) + ': ' + (chap.text || '').toUpperCase(), 40, 50);
+
+            cCtx.save();
+            cCtx.globalAlpha = 0.25;
+            cCtx.drawImage(exportCanvas, 0, 0);
+            cCtx.restore();
+
+            const chapNode = (this.canvas.renderedNodes || []).find(n => n.id === chap.id);
+            if (chapNode) {
+              const offsetX = (geo.targetW - geo.contentW) / 2 + 80 - geo.minX;
+              const offsetY = (geo.targetH - geo.contentH) / 2 + 80 - geo.minY;
+              cCtx.save();
+              cCtx.translate(offsetX, offsetY);
+              cCtx.strokeStyle = '#fbbf24';
+              cCtx.lineWidth = 3;
+              cCtx.strokeRect(chapNode.x - 12, chapNode.y - 12, chapNode.width + 24, chapNode.height + 24);
+              cCtx.restore();
+            }
+
+            const chapDataUrl = chapCanvas.toDataURL('image/jpeg', 0.95);
+            pagesHtml += `<div class="print-page" style="page-break-before: always;"><img src="${chapDataUrl}" /></div>`;
+          });
+        }
+
         printWindow.document.write(`
           <html>
             <head>
-              <title>${title} - ${this.paperSize} ${this.orientation}</title>
+              <title>${title} - Fascicolo Tecnico CDS</title>
               <style>
                 @page { size: ${this.paperSize === 'Auto' ? 'auto' : this.paperSize} ${this.orientation}; margin: 0; }
-                body { margin: 0; display: flex; align-items: center; justify-content: center; background: ${this.bgStyle === 'light' ? '#ffffff' : '#0d1117'}; }
+                body { margin: 0; background: ${this.bgStyle === 'light' ? '#ffffff' : '#0d1117'}; }
+                .print-page { width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; page-break-after: always; }
                 img { width: 100vw; height: 100vh; object-fit: contain; }
               </style>
             </head>
             <body>
-              <img src="${dataUrl}" onload="window.print();" />
+              ${pagesHtml}
+              <script>window.onload = () => window.print();</script>
             </body>
           </html>
         `);
         printWindow.document.close();
       }
-      new Notice(`📄 Finestra di stampa PDF ${this.paperSize} pronta!`);
+      new Notice(`📄 Fascicolo di stampa PDF ${this.paperSize} pronto!`);
     } else {
       const mime = this.format === 'jpg' ? 'image/jpeg' : 'image/png';
       exportCanvas.toBlob((blob) => {
@@ -1734,6 +1796,12 @@ class MindmapCanvas {
     this.viewMode = options.viewMode || 'radial';
     this.detailLevel = options.detailLevel || 'keypoints';
 
+    // v1.7.4: Stile connettori, ripasso attivo e breadcrumb glow
+    this.connectorStyle = options.connectorStyle || 'curved';
+    this.isStudyMode = false;
+    this.revealedNodes = new Set();
+    this.hoveredNodeId = null;
+
     this.panX = 0;
     this.panY = 0;
     this.zoom = 1;
@@ -1753,6 +1821,7 @@ class MindmapCanvas {
       if (saved) {
         if (saved.viewMode) this.viewMode = saved.viewMode;
         if (saved.detailLevel) this.detailLevel = saved.detailLevel;
+        if (saved.connectorStyle) this.connectorStyle = saved.connectorStyle;
         if (saved.isOrganicView !== undefined) this.isOrganicView = saved.isOrganicView;
         if (saved.panX !== undefined) this.panX = saved.panX;
         if (saved.panY !== undefined) this.panY = saved.panY;
@@ -1769,6 +1838,8 @@ class MindmapCanvas {
               if (pos.layout) raw.layout = pos.layout;
               if (pos.isOrganic !== undefined) raw.isOrganic = pos.isOrganic;
               if (pos.edgeText) raw.edgeText = pos.edgeText;
+              if (pos.priority) raw.priority = pos.priority;
+              if (pos.customColor) raw.customColor = pos.customColor;
             }
           }
         }
@@ -1884,6 +1955,24 @@ class MindmapCanvas {
       this.render();
     };
 
+    const connectorIcons = { curved: '🌊 Curvi', orthogonal: '📐 Squadrati', straight: '📏 Lineari' };
+    const btnConnector = groupViews.createEl('button', {
+      cls: 'cds-mm-dock-btn',
+      attr: { title: 'Cambia stile connettori: Curvi (Bezier), Ortogonali (CAD 90°) o Lineari' }
+    });
+    btnConnector.innerHTML = connectorIcons[this.connectorStyle] || '🌊 Curvi';
+    btnConnector.onmousedown = (e) => e.stopPropagation();
+    btnConnector.onclick = (e) => {
+      e.stopPropagation();
+      const styles = ['curved', 'orthogonal', 'straight'];
+      const nextIdx = (styles.indexOf(this.connectorStyle) + 1) % styles.length;
+      this.connectorStyle = styles[nextIdx];
+      btnConnector.innerHTML = connectorIcons[this.connectorStyle];
+      this.render();
+      this.saveLayoutMemory();
+      new Notice('📐 Stile connettori: ' + this.connectorStyle.toUpperCase());
+    };
+
     // GRUPPO 2: DETTAGLIO
     const groupDetail = this.topDock.createDiv({ cls: 'cds-mm-dock-group' });
     groupDetail.createSpan({ text: 'Dettaglio:', cls: 'cds-mm-dock-label' });
@@ -1926,6 +2015,33 @@ class MindmapCanvas {
     mkToolBtn('➕ <span class="cds-mm-btn-text">Figlio</span>', 'Aggiungi Nodo Figlio (Tab)', () => this.addChildToSelected());
     mkToolBtn('⏬ <span class="cds-mm-btn-text">Fratello</span>', 'Aggiungi Nodo Fratello (Enter)', () => this.addSiblingToSelected());
     mkToolBtn('🗑️', 'Elimina Nodo (Canc)', () => this.deleteSelected());
+
+    // Modalità Ripasso Orale (Flashcard Interactive)
+    const btnStudy = groupTools.createEl('button', {
+      cls: 'cds-mm-dock-btn' + (this.isStudyMode ? ' is-active' : ''),
+      attr: { title: 'Modalità Ripasso Orale: copre i concetti e permette di verificarli uno ad uno' }
+    });
+    btnStudy.innerHTML = '🎓 <span class="cds-mm-btn-text">Ripasso</span>';
+    btnStudy.onmousedown = (e) => e.stopPropagation();
+    btnStudy.onclick = (e) => {
+      e.stopPropagation();
+      this.toggleStudyMode();
+    };
+
+    if (this.isStudyMode) {
+      const btnRecover = groupTools.createEl('button', {
+        cls: 'cds-mm-dock-btn',
+        attr: { title: 'Ricopre tutti i concetti per iniziare un nuovo ciclo di ripasso' }
+      });
+      btnRecover.innerHTML = '🔄 <span class="cds-mm-btn-text">Ricopri Tutto</span>';
+      btnRecover.onmousedown = (e) => e.stopPropagation();
+      btnRecover.onclick = (e) => {
+        e.stopPropagation();
+        this.revealedNodes.clear();
+        this.render();
+        new Notice('🔄 Tutti i concetti sono stati ricoperti!');
+      };
+    }
 
     groupTools.createDiv({ cls: 'cds-mm-divider' });
 
@@ -2007,12 +2123,13 @@ class MindmapCanvas {
     const activeTree = MindmapEngine.filterTreeByDetail(this.rawRootNode, this.detailLevel);
 
     let layout;
+    const layoutOpts = { detailLevel: this.detailLevel, connectorStyle: this.connectorStyle };
     if (this.viewMode === 'radial') {
-      layout = MindmapEngine.computeRadialLayout(activeTree, { detailLevel: this.detailLevel });
+      layout = MindmapEngine.computeRadialLayout(activeTree, layoutOpts);
     } else if (this.viewMode === 'bilateral') {
-      layout = MindmapEngine.computeBilateralLayout(activeTree, { detailLevel: this.detailLevel });
+      layout = MindmapEngine.computeBilateralLayout(activeTree, layoutOpts);
     } else {
-      layout = MindmapEngine.computeRightLayout(activeTree, { detailLevel: this.detailLevel });
+      layout = MindmapEngine.computeRightLayout(activeTree, layoutOpts);
     }
 
     this.renderedNodes = layout.nodes;
@@ -2058,7 +2175,11 @@ class MindmapCanvas {
       nodeEl.style.top = `${node.y}px`;
       nodeEl.style.width = `${node.width}px`;
       nodeEl.style.minHeight = `${node.height}px`;
-      nodeEl.style.borderColor = node.isRoot ? 'rgba(255,255,255,0.5)' : node.color || '#38bdf8';
+      const finalBorderColor = node.customColor || (node.isRoot ? 'rgba(255,255,255,0.5)' : node.color || '#38bdf8');
+      nodeEl.style.borderColor = finalBorderColor;
+      if (node.customColor) {
+        nodeEl.style.boxShadow = '0 0 14px ' + node.customColor + '44';
+      }
 
       if (isSelected) selectedNodeEl = nodeEl;
 
@@ -2083,10 +2204,43 @@ class MindmapCanvas {
           headerRow.createSpan({ text: '🏷️ Cap.', cls: 'cds-mm-chap-badge' });
         }
 
-        const titleEl = headerRow.createDiv({ cls: 'cds-mm-node-title' });
+        if (node.priority === 'high') {
+          headerRow.createSpan({ text: '🔴 DA RIVEDERE', cls: 'cds-mm-prio-badge prio-high' });
+        } else if (node.priority === 'medium') {
+          headerRow.createSpan({ text: '🟡 IN DUBBIO', cls: 'cds-mm-prio-badge prio-medium' });
+        } else if (node.priority === 'done') {
+          headerRow.createSpan({ text: '🟢 PRONTO', cls: 'cds-mm-prio-badge prio-done' });
+        }
 
-        // Rendering sincrono immediato e garantito
-        titleEl.innerHTML = MindmapEngine.renderMiniMarkdown(node.text);
+        const isMasked = this.isStudyMode && !node.isRoot && node.depth > 0 && !this.revealedNodes.has(node.id);
+        if (isMasked) {
+          nodeEl.classList.add('is-study-masked');
+          const maskEl = nodeEl.createDiv({ cls: 'cds-mm-study-mask' });
+          maskEl.innerHTML = '<span class="cds-mm-mask-icon">❓</span> <span class="cds-mm-mask-text">Svela Concetto (Spazio)</span>';
+          maskEl.onmousedown = (e) => e.stopPropagation();
+          maskEl.onclick = (e) => {
+            e.stopPropagation();
+            this.revealedNodes.add(node.id);
+            this.render();
+          };
+        }
+
+        const titleEl = headerRow.createDiv({ cls: 'cds-mm-node-title' });
+        if (isMasked) {
+          titleEl.style.display = 'none';
+        } else {
+          titleEl.innerHTML = MindmapEngine.renderMiniMarkdown(node.text);
+        }
+
+        if (this.isStudyMode && !node.isRoot && node.depth > 0 && this.revealedNodes.has(node.id)) {
+          const revTag = headerRow.createSpan({ text: '✓ Svelato', cls: 'cds-mm-study-tag' });
+          revTag.onmousedown = (e) => e.stopPropagation();
+          revTag.onclick = (e) => {
+            e.stopPropagation();
+            this.revealedNodes.delete(node.id);
+            this.render();
+          };
+        }
 
         if (node.images && node.images.length) {
           const imgWrap = nodeEl.createDiv({ cls: 'cds-mm-node-img-wrap' });
@@ -2428,6 +2582,14 @@ class MindmapCanvas {
 
     mkFloatBtn('➕ Figlio', 'Aggiungi nodo figlio (Tab)', () => this.addChildToSelected());
     mkFloatBtn('⏬ Fratello', 'Aggiungi nodo fratello (Enter)', () => this.addSiblingToSelected());
+
+    // Priorità di Studio
+    mkFloatBtn('🔴', 'Segna come: Da Rivedere (Urgente)', () => this.setNodePriority(rawNode, 'high', '#f43f5e'));
+    mkFloatBtn('🟡', 'Segna come: In Dubbio (Da approfondire)', () => this.setNodePriority(rawNode, 'medium', '#fbbf24'));
+    mkFloatBtn('🟢', 'Segna come: Padroneggiato (Pronto per esame)', () => this.setNodePriority(rawNode, 'done', '#10b981'));
+    if (rawNode.priority && rawNode.priority !== 'none') {
+      mkFloatBtn('⚪️', 'Rimuovi Priorità', () => this.setNodePriority(rawNode, 'none', null));
+    }
 
     const isTable = rawNode.layout === 'table';
     mkFloatBtn(isTable ? '🧠 Mappa' : '📊 Tabella', isTable ? 'Ritorna a Ramo Mappa' : 'Converti in Tabella', () => this.toggleTableLayoutSelected());
@@ -2780,8 +2942,7 @@ class MindmapCanvas {
         const y1 = fromNode.y + (fromNode.height / 2);
         const x2 = isRight ? toNode.x : toNode.x + toNode.width;
         const y2 = toNode.y + (toNode.height / 2);
-        const dx = (x2 - x1) * 0.55;
-        p.d = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+        p.d = MindmapEngine.generateBranchPath(x1, y1, x2, y2, isRight, this.connectorStyle);
 
         const pathEl = this.svgLayer.querySelector(`[data-to="${p.toId}"]`);
         if (pathEl) {
@@ -2792,6 +2953,76 @@ class MindmapCanvas {
   }
 
   
+  
+  getAncestorIds(nodeId) {
+    const list = [nodeId];
+    let cur = this.findRawNode(nodeId);
+    while (cur && !cur.isRoot) {
+      const parent = this.findParent(cur.id);
+      if (!parent) break;
+      list.push(parent.id);
+      cur = parent;
+    }
+    return list;
+  }
+
+  updateHierarchyGlow(activeNodeId) {
+    if (!activeNodeId || activeNodeId === 'root') {
+      this.svgLayer.querySelectorAll('.cds-mm-branch-path').forEach(p => {
+        p.classList.remove('is-breadcrumb-path', 'is-breadcrumb-dimmed');
+      });
+      this.nodesLayer.querySelectorAll('.cds-mm-node').forEach(n => {
+        n.classList.remove('is-breadcrumb-node', 'is-breadcrumb-dimmed');
+      });
+      return;
+    }
+
+    const ancestors = new Set(this.getAncestorIds(activeNodeId));
+
+    this.svgLayer.querySelectorAll('.cds-mm-branch-path').forEach(p => {
+      const fromId = p.getAttribute('data-from');
+      const toId = p.getAttribute('data-to');
+      if (ancestors.has(fromId) && ancestors.has(toId)) {
+        p.classList.add('is-breadcrumb-path');
+        p.classList.remove('is-breadcrumb-dimmed');
+      } else {
+        p.classList.remove('is-breadcrumb-path');
+        p.classList.add('is-breadcrumb-dimmed');
+      }
+    });
+
+    this.nodesLayer.querySelectorAll('.cds-mm-node').forEach(nEl => {
+      const nid = nEl.getAttribute('data-node-id');
+      if (ancestors.has(nid)) {
+        nEl.classList.add('is-breadcrumb-node');
+        nEl.classList.remove('is-breadcrumb-dimmed');
+      } else {
+        nEl.classList.remove('is-breadcrumb-node');
+        nEl.classList.add('is-breadcrumb-dimmed');
+      }
+    });
+  }
+
+  setNodePriority(rawNode, priority, color) {
+    rawNode.priority = priority;
+    rawNode.customColor = color;
+    this.render();
+    this.saveLayoutMemory();
+    const lbl = priority === 'high' ? '🔴 DA RIVEDERE' : priority === 'medium' ? '🟡 IN DUBBIO' : priority === 'done' ? '🟢 PADRONEGGIATO' : '⚪️ STANDARD';
+    new Notice('Stato concetto: ' + lbl);
+  }
+
+  toggleStudyMode() {
+    this.isStudyMode = !this.isStudyMode;
+    if (this.isStudyMode) {
+      new Notice('🎓 Modalità Ripasso ATTIVA! I concetti sono coperti. Clicca o premi Spazio per verificare il ricordo.');
+    } else {
+      new Notice('📖 Modalità Ripasso disattivata.');
+    }
+    this.renderTopDock();
+    this.render();
+  }
+
   async saveLayoutMemory() {
     if (!this.plugin || !this.filePath) return;
     if (!this.plugin.settings) this.plugin.settings = { fileLayouts: {} };
@@ -2809,7 +3040,9 @@ class MindmapCanvas {
           customHeight: n.customHeight,
           layout: n.layout,
           isOrganic: n.isOrganic,
-          edgeText: n.edgeText
+          edgeText: n.edgeText,
+          priority: n.priority,
+          customColor: n.customColor
         };
       }
       if (n.collapsed) {
@@ -2824,6 +3057,7 @@ class MindmapCanvas {
       collapsed,
       viewMode: this.viewMode,
       detailLevel: this.detailLevel,
+      connectorStyle: this.connectorStyle,
       isOrganicView: !!this.isOrganicView,
       panX: Math.round(this.panX),
       panY: Math.round(this.panY),
@@ -2900,6 +3134,7 @@ class MindmapCanvas {
   selectNode(nodeId) {
     this.selectedNodeId = nodeId;
     this.render();
+    this.updateHierarchyGlow(nodeId);
   }
 
   findRawNode(nodeId, node = this.rawRootNode) {
@@ -3057,6 +3292,17 @@ class MindmapCanvas {
 
   onKeyDown(e) {
     if (this.editingInput) return;
+
+    if (e.code === 'Space' && this.isStudyMode && this.selectedNodeId && this.selectedNodeId !== 'root') {
+      e.preventDefault();
+      if (this.revealedNodes.has(this.selectedNodeId)) {
+        this.revealedNodes.delete(this.selectedNodeId);
+      } else {
+        this.revealedNodes.add(this.selectedNodeId);
+      }
+      this.render();
+      return;
+    }
 
     if (e.key === 'Tab') {
       e.preventDefault();
@@ -3357,7 +3603,7 @@ class CdsMindmapView extends ItemView {
 module.exports = class CdsMindmapPlugin extends Plugin {
   async onload() {
     this.settings = Object.assign({ fileLayouts: {} }, await this.loadData());
-    console.log('Loading CDS Mindmap Suite v1.7.3 (Proportional Radial Sectors, Dedicated Table Branches, Zero-Collision 2D Solver, Canvas Resize & Organic View) (Organic View, Canvas-Style Resizing, Branch Labels, Zero-Overlap 2D Solver & Safe Table Preservation)');
+    console.log('Loading CDS Mindmap Suite v1.7.4 (Proportional Radial Sectors, Dedicated Table Branches, Zero-Collision 2D Solver, Canvas Resize & Organic View) (Organic View, Canvas-Style Resizing, Branch Labels, Zero-Overlap 2D Solver & Safe Table Preservation)');
 
     this.registerView(VIEW_TYPE_MINDMAP, (leaf) => new CdsMindmapView(leaf, this));
 

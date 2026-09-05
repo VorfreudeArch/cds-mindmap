@@ -1223,3 +1223,113 @@
   filter: grayscale(0.5);
   transition: opacity 0.3s ease;
 }
+
+
+/* ==========================================================================
+   v1.7.4: Suite Studio & Architettura (Breadcrumb Glow, Ripasso & Priorità)
+   ========================================================================== */
+
+/* 1. Breadcrumb Glow (Percorso Gerarchico Illuminato) */
+.cds-mm-branch-path.is-breadcrumb-path {
+  stroke-width: 4px !important;
+  stroke: #38bdf8 !important;
+  filter: drop-shadow(0 0 10px #38bdf8) !important;
+  opacity: 1 !important;
+  z-index: 50 !important;
+}
+
+.cds-mm-branch-path.is-breadcrumb-dimmed {
+  opacity: 0.12 !important;
+  transition: opacity 0.25s ease;
+}
+
+.cds-mm-node.is-breadcrumb-node {
+  opacity: 1 !important;
+  border-color: #38bdf8 !important;
+  box-shadow: 0 0 18px rgba(56, 189, 248, 0.65) !important;
+}
+
+.cds-mm-node.is-breadcrumb-dimmed {
+  opacity: 0.28 !important;
+  filter: grayscale(0.4);
+  transition: opacity 0.25s ease;
+}
+
+/* 2. Modalità Ripasso Orale (Flashcard Interattive) */
+.cds-mm-node.is-study-masked {
+  background: rgba(15, 23, 42, 0.95) !important;
+  border-style: dashed !important;
+  border-color: rgba(255, 255, 255, 0.35) !important;
+  cursor: pointer !important;
+}
+
+.cds-mm-study-mask {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  color: #94a3b8;
+  user-select: none;
+  font-weight: 600;
+}
+
+.cds-mm-study-mask:hover {
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.cds-mm-mask-icon {
+  font-size: 1.1rem;
+}
+
+.cds-mm-study-tag {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+  border: 1px solid #10b981;
+  cursor: pointer;
+  margin-left: 6px;
+  transition: all 0.2s ease;
+}
+
+.cds-mm-study-tag:hover {
+  background: rgba(244, 63, 94, 0.2);
+  color: #f43f5e;
+  border-color: #f43f5e;
+}
+
+/* 3. Priorità di Studio Semantiche (🔴🟡🟢) */
+.cds-mm-prio-badge {
+  font-size: 0.65rem;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+  margin-left: 6px;
+}
+
+.cds-mm-prio-badge.prio-high {
+  background: rgba(244, 63, 94, 0.25);
+  color: #f43f5e;
+  border: 1px solid #f43f5e;
+  box-shadow: 0 0 8px rgba(244, 63, 94, 0.4);
+}
+
+.cds-mm-prio-badge.prio-medium {
+  background: rgba(251, 191, 36, 0.25);
+  color: #fbbf24;
+  border: 1px solid #fbbf24;
+  box-shadow: 0 0 8px rgba(251, 191, 36, 0.4);
+}
+
+.cds-mm-prio-badge.prio-done {
+  background: rgba(16, 185, 129, 0.25);
+  color: #10b981;
+  border: 1px solid #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+}
