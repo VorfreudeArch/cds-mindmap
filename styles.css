@@ -1908,3 +1908,25 @@
   from { opacity: 0; transform: translate(-50%, 15px); }
   to { opacity: 1; transform: translate(-50%, 0); }
 }
+
+/* ========================================================================== */
+/* CDS Mindmap v1.8.2: Obsidian Canvas Native Text Visibility Fix (Zero Clic) */
+/* ========================================================================== */
+.canvas-node-placeholder {
+  display: none !important;
+}
+
+.canvas-node.is-themed .canvas-node-content,
+.canvas-node .canvas-node-content {
+  display: flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+.canvas-wrapper.mod-zoomed-out .canvas-node-label {
+  display: block !important;
+}
+
+.canvas-node-content.markdown-embed > .markdown-embed-content {
+  max-height: none !important;
+}

@@ -529,6 +529,14 @@ class MindmapEngine {
     const canvasNodes = [];
     const canvasEdges = [];
 
+    // Mappa nodi esistenti per preservare coordinate e dimensioni personalizzate dall'utente
+    const existingNodesMap = new Map();
+    if (options.existingCanvasData && Array.isArray(options.existingCanvasData.nodes)) {
+      options.existingCanvasData.nodes.forEach(en => {
+        if (en && en.id) existingNodesMap.set(en.id, en);
+      });
+    }
+
     // Colori Obsidian Canvas nativi (1-6)
     // 1: Rosso/Corallo, 2: Arancio, 3: Giallo, 4: Verde, 5: Blu/Azzurro, 6: Viola
     const depthColors = ['5', '1', '2', '4', '6', '3'];
@@ -549,18 +557,31 @@ class MindmapEngine {
         nodeText += '\n\n' + n.bodyText.trim();
       }
 
-      const w = Math.round(Math.max(n.width, 240));
-      const h = Math.round(Math.max(n.height, 80));
+      let w = Math.round(Math.max(n.width, 240));
+      let h = Math.round(Math.max(n.height, 80));
+      let posX = Math.round(n.x);
+      let posY = Math.round(n.y);
+      let nodeColor = color;
+
+      // Preservazione intelligente coordinate utente da Canvas
+      const existing = existingNodesMap.get(n.id);
+      if (existing) {
+        if (typeof existing.x === 'number') posX = existing.x;
+        if (typeof existing.y === 'number') posY = existing.y;
+        if (typeof existing.width === 'number') w = existing.width;
+        if (typeof existing.height === 'number') h = existing.height;
+        if (existing.color) nodeColor = existing.color;
+      }
 
       canvasNodes.push({
         id: n.id,
         type: 'text',
         text: nodeText,
-        x: Math.round(n.x),
-        y: Math.round(n.y),
+        x: posX,
+        y: posY,
         width: w,
         height: h,
-        color
+        color: nodeColor
       });
     });
 
@@ -612,9 +633,135 @@ class MindmapEngine {
     });
 
     return {
+      metadata: {
+        sourceFile: options.sourceFilePath || '',
+        syncedBy: 'cds-mindmap',
+        lastSync: Date.now()
+      },
       nodes: canvasNodes,
       edges: canvasEdges
     };
+  }
+
+  // ==========================================================================
+  // METODO v1.8.2: PARSER BIDIREZIONALE OBSIDIAN CANVAS (.canvas) -> MARKDOWN
+  // ==========================================================================
+  static canvasToMarkdown(canvasData) {
+    if (!canvasData || !Array.isArray(canvasData.nodes) || canvasData.nodes.length === 0) {
+      return '';
+    }
+
+    const textNodes = canvasData.nodes.filter(n => n.type === 'text');
+    if (textNodes.length === 0) return '';
+
+    const edges = Array.isArray(canvasData.edges) ? canvasData.edges : [];
+    const nodesById = new Map();
+    textNodes.forEach(n => nodesById.set(n.id, n));
+
+    const outgoing = new Map();
+    const incoming = new Map();
+
+    edges.forEach(e => {
+      if (!outgoing.has(e.fromNode)) outgoing.set(e.fromNode, []);
+      outgoing.get(e.fromNode).push(e.toNode);
+
+      if (!incoming.has(e.toNode)) incoming.set(e.toNode, []);
+      incoming.get(e.toNode).push(e.fromNode);
+    });
+
+    // Nodi radice (senza archi in ingresso)
+    let rootNodes = textNodes.filter(n => !incoming.has(n.id) || incoming.get(n.id).length === 0);
+    if (rootNodes.length === 0) {
+      rootNodes = [textNodes[0]];
+    }
+
+    // Ordina le radici per coordinata Y
+    rootNodes.sort((a, b) => (a.y || 0) - (b.y || 0));
+
+    const visited = new Set();
+    const lines = [];
+
+    function traverse(nodeId, depth) {
+      if (visited.has(nodeId)) return;
+      visited.add(nodeId);
+
+      const node = nodesById.get(nodeId);
+      if (!node) return;
+
+      const rawText = (node.text || '').trim();
+      if (rawText) {
+        if (depth === 0) {
+          let cleanTitle = rawText.replace(/^#+\s*/, '').trim();
+          if (cleanTitle.startsWith('**') && cleanTitle.endsWith('**')) {
+            cleanTitle = cleanTitle.slice(2, -2).trim();
+          }
+          lines.push(`# ${cleanTitle}`);
+          lines.push('');
+        } else if (depth === 1) {
+          const parts = rawText.split('\n\n');
+          let header = parts[0].replace(/^#+\s*/, '').trim();
+          if (header.startsWith('**') && header.endsWith('**')) {
+            header = header.slice(2, -2).trim();
+          }
+          const body = parts.slice(1).join('\n\n');
+          lines.push(`## ${header}`);
+          if (body) {
+            lines.push(body);
+          }
+          lines.push('');
+        } else if (depth === 2) {
+          const parts = rawText.split('\n\n');
+          let header = parts[0].replace(/^#+\s*/, '').trim();
+          if (header.startsWith('**') && header.endsWith('**')) {
+            header = header.slice(2, -2).trim();
+          }
+          const body = parts.slice(1).join('\n\n');
+          lines.push(`### ${header}`);
+          if (body) {
+            lines.push(body);
+          }
+          lines.push('');
+        } else {
+          const indent = '  '.repeat(Math.max(0, depth - 3));
+          const parts = rawText.split('\n\n');
+          const firstLine = parts[0];
+          const rest = parts.slice(1).join('\n\n');
+          lines.push(`${indent}- ${firstLine}`);
+          if (rest) {
+            const restLines = rest.split('\n');
+            restLines.forEach(rl => lines.push(`${indent}  ${rl}`));
+          }
+        }
+      }
+
+      // Nodi figli ordinati per Y crescente
+      const childIds = outgoing.get(nodeId) || [];
+      const childNodes = childIds.map(id => nodesById.get(id)).filter(Boolean);
+      childNodes.sort((a, b) => (a.y || 0) - (b.y || 0));
+
+      for (const child of childNodes) {
+        traverse(child.id, depth + 1);
+      }
+    }
+
+    for (const root of rootNodes) {
+      traverse(root.id, 0);
+    }
+
+    // Eventuali nodi orfani non connessi
+    const orphans = textNodes.filter(n => !visited.has(n.id));
+    if (orphans.length > 0) {
+      lines.push('');
+      lines.push('## Altri Concetti Collegati');
+      lines.push('');
+      orphans.sort((a, b) => (a.y || 0) - (b.y || 0));
+      for (const orphan of orphans) {
+        lines.push(`- ${orphan.text.trim()}`);
+      }
+      lines.push('');
+    }
+
+    return lines.join('\n');
   }
 
   static filterTreeByDetail(node, level = 'keypoints') {
@@ -4119,13 +4266,6 @@ class MindmapCanvas {
         return;
       }
 
-      const canvasData = MindmapEngine.exportToObsidianCanvas(this.rawRootNode, {
-        detailLevel: this.detailLevel,
-        viewMode: this.viewMode,
-        groups: this.groups,
-        spacingDensity: this.spacingDensity
-      });
-
       const baseName = (this.rawRootNode.text || 'Mappa_Concettuale').replace(/[/\\?%*:|"<>]/g, '_').trim();
       let canvasPath = '';
       if (this.filePath) {
@@ -4135,8 +4275,25 @@ class MindmapCanvas {
         canvasPath = `Mappe Concettuali/${baseName}.canvas`;
       }
 
-      const jsonStr = JSON.stringify(canvasData, null, 2);
       const existingFile = this.app.vault.getAbstractFileByPath(canvasPath);
+      let existingCanvasData = null;
+      if (existingFile) {
+        try {
+          const raw = await this.app.vault.read(existingFile);
+          existingCanvasData = JSON.parse(raw);
+        } catch(e) {}
+      }
+
+      const canvasData = MindmapEngine.exportToObsidianCanvas(this.rawRootNode, {
+        detailLevel: this.detailLevel,
+        viewMode: this.viewMode,
+        groups: this.groups,
+        spacingDensity: this.spacingDensity,
+        existingCanvasData,
+        sourceFilePath: this.filePath || ''
+      });
+
+      const jsonStr = JSON.stringify(canvasData, null, 2);
 
       if (existingFile) {
         await this.app.vault.modify(existingFile, jsonStr);
@@ -4151,7 +4308,16 @@ class MindmapCanvas {
       }
 
       new Notice(`🗺️ Mappa esportata in Obsidian Canvas: ${canvasPath}`);
-      await this.app.workspace.openLinkText(canvasPath, '', true);
+      const leaf = await this.app.workspace.openLinkText(canvasPath, '', true);
+
+      // Risoluzione visibilità immediata (Zero Clic) sulla scheda aperta
+      setTimeout(() => {
+        const canvasLeaves = this.app.workspace.getLeavesOfType('canvas');
+        const targetLeaf = canvasLeaves.find(l => l.view && l.view.file && l.view.file.path === canvasPath) || this.app.workspace.activeLeaf;
+        if (targetLeaf && this.plugin && typeof this.plugin.enhanceCanvasLeaf === 'function') {
+          this.plugin.enhanceCanvasLeaf(targetLeaf);
+        }
+      }, 150);
     } catch(err) {
       console.error('[CDS Mindmap] Error opening in Obsidian Canvas:', err);
       new Notice(`⚠️ Errore apertura Canvas: ${err.message}`);
@@ -5752,23 +5918,36 @@ class CdsMindmapView extends ItemView {
 
 module.exports = class CdsMindmapPlugin extends Plugin {
   async onload() {
-    this.settings = Object.assign({ fileLayouts: {} }, await this.loadData());
-    console.log('Loading CDS Mindmap Suite v1.8.0 (Proportional Radial Sectors, Dedicated Table Branches, Zero-Collision 2D Solver, Canvas Resize & Organic View) (Organic View, Canvas-Style Resizing, Branch Labels, Zero-Overlap 2D Solver & Safe Table Preservation)');
+    this.settings = Object.assign({ fileLayouts: {}, syncCanvasBidirectional: true }, await this.loadData());
+    this._syncLocks = new Set();
+    this._syncDebounceTimers = new Map();
+
+    console.log('Loading CDS Mindmap Suite v1.8.2 (Bidirectional Canvas Sync & Zero-Click Text Visibility)');
 
     this.registerView(VIEW_TYPE_MINDMAP, (leaf) => new CdsMindmapView(leaf, this));
 
+    // Ascolto layout ed eventi leaf per garantire la visibilità del testo Canvas a qualsiasi zoom (Zero Clic)
     this.registerEvent(
-      this.app.vault.on('modify', (file) => {
-        if (!(file instanceof TFile) || file.extension !== 'md') return;
-        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_MINDMAP);
-        for (const leaf of leaves) {
-          const v = leaf.view;
-          if (v && v.file && v.file.path === file.path && !v._isInternalSaving) {
-            v.reloadFromMarkdown();
-          }
+      this.app.workspace.on('layout-change', () => this.enhanceAllCanvasViews())
+    );
+
+    this.registerEvent(
+      this.app.workspace.on('active-leaf-change', (leaf) => {
+        if (leaf && leaf.view && leaf.view.getViewType() === 'canvas') {
+          this.enhanceCanvasLeaf(leaf);
         }
       })
     );
+
+    // Sincronizzazione automatica e bidirezionale tra note Markdown e Obsidian Canvas (.canvas)
+    this.registerEvent(
+      this.app.vault.on('modify', (file) => {
+        if (!(file instanceof TFile)) return;
+        this.handleFileModified(file);
+      })
+    );
+
+    setTimeout(() => this.enhanceAllCanvasViews(), 600);
 
     this.addRibbonIcon('git-fork', 'CDS Mindmap: Apri come Mappa Concettuale', () => {
       this.openActiveNoteAsMindmap();
@@ -5874,6 +6053,242 @@ module.exports = class CdsMindmapPlugin extends Plugin {
     }
   }
 
+  // ==========================================================================
+  // METODI v1.8.2: RISOLUZIONE VISIBILITÀ TESTO CANVAS (ZERO CLIC)
+  // ==========================================================================
+  enhanceAllCanvasViews() {
+    const leaves = this.app.workspace.getLeavesOfType('canvas');
+    leaves.forEach(leaf => this.enhanceCanvasLeaf(leaf));
+  }
+
+  enhanceCanvasLeaf(leaf) {
+    if (!leaf || !leaf.view) return;
+    const canvas = leaf.view.canvas;
+    if (!canvas) return;
+
+    // 1. Modifica breakpoint per disattivare la modalità segnaposto su tutta la tela
+    if (canvas.options) {
+      canvas.options.zoomBreakpoint = 10;
+    }
+
+    // 2. Forza alwaysKeepLoaded = true e monta permanentemente il contenuto di ogni nodo
+    if (canvas.nodes) {
+      canvas.nodes.forEach(node => {
+        node.alwaysKeepLoaded = true;
+        if (typeof node.mountContent === 'function' && !node.isContentMounted) {
+          node.mountContent();
+        }
+        if (typeof node.updateBreakpoint === 'function') {
+          node.updateBreakpoint(true);
+        }
+      });
+    }
+
+    // 3. Hook attivo per qualsiasi nuovo nodo o variazione della vista
+    if (!canvas._cdsHooked) {
+      canvas._cdsHooked = true;
+
+      if (typeof canvas.createNode === 'function') {
+        const origCreateNode = canvas.createNode;
+        canvas.createNode = function(...args) {
+          const node = origCreateNode.apply(this, args);
+          if (node) {
+            node.alwaysKeepLoaded = true;
+            setTimeout(() => {
+              if (typeof node.mountContent === 'function' && !node.isContentMounted) {
+                node.mountContent();
+              }
+            }, 10);
+          }
+          return node;
+        };
+      }
+
+      if (typeof canvas.markViewportChanged === 'function') {
+        const origMark = canvas.markViewportChanged;
+        canvas.markViewportChanged = function(...args) {
+          origMark.apply(this, args);
+          if (this.nodes) {
+            this.nodes.forEach(n => {
+              n.alwaysKeepLoaded = true;
+              if (!n.isContentMounted && typeof n.mountContent === 'function') {
+                n.mountContent();
+              }
+            });
+          }
+        };
+      }
+    }
+  }
+
+  // ==========================================================================
+  // METODI v1.8.2: SINCRONIZZAZIONE BIDIREZIONALE REAL-TIME MINDMAP <-> CANVAS
+  // ==========================================================================
+  findLinkedCanvasFile(mdFile) {
+    if (!mdFile) return null;
+    // 1. Stessa cartella
+    const sameDirPath = mdFile.path.replace(/\.md$/, '.canvas');
+    let f = this.app.vault.getAbstractFileByPath(sameDirPath);
+    if (f instanceof TFile) return f;
+
+    // 2. Cartella sorella 'Mappe Concettuali'
+    const parent = mdFile.parent;
+    if (parent) {
+      const grandparent = parent.parent ? parent.parent.path : '';
+      const siblingPath = grandparent ? `${grandparent}/Mappe Concettuali/${mdFile.basename}.canvas` : `Mappe Concettuali/${mdFile.basename}.canvas`;
+      f = this.app.vault.getAbstractFileByPath(siblingPath);
+      if (f instanceof TFile) return f;
+    }
+
+    // 3. Cartella radice Mappe Concettuali
+    f = this.app.vault.getAbstractFileByPath(`Mappe Concettuali/${mdFile.basename}.canvas`);
+    if (f instanceof TFile) return f;
+
+    // 4. Scansione vault per nome file corrispondente
+    const allFiles = this.app.vault.getFiles();
+    return allFiles.find(file => file.extension === 'canvas' && file.basename === mdFile.basename) || null;
+  }
+
+  findLinkedMarkdownFile(canvasFile) {
+    if (!canvasFile) return null;
+    // 1. Stessa cartella
+    const sameDirPath = canvasFile.path.replace(/\.canvas$/, '.md');
+    let f = this.app.vault.getAbstractFileByPath(sameDirPath);
+    if (f instanceof TFile) return f;
+
+    // 2. Cartella sorella 'Approfondimenti'
+    const parent = canvasFile.parent;
+    if (parent) {
+      const grandparent = parent.parent ? parent.parent.path : '';
+      const siblingApprofondimenti = grandparent ? `${grandparent}/Approfondimenti/${canvasFile.basename}.md` : `Approfondimenti/${canvasFile.basename}.md`;
+      f = this.app.vault.getAbstractFileByPath(siblingApprofondimenti);
+      if (f instanceof TFile) return f;
+    }
+
+    // 3. Risoluzione tramite metadataCache per nome nota
+    const target = this.app.metadataCache.getFirstLinkpathDest(canvasFile.basename, canvasFile.path);
+    if (target instanceof TFile && target.extension === 'md') return target;
+
+    // 4. Scansione vault per nome file corrispondente
+    const allFiles = this.app.vault.getFiles();
+    return allFiles.find(file => file.extension === 'md' && file.basename === canvasFile.basename) || null;
+  }
+
+  debounceSync(key, fn, delay = 600) {
+    if (this._syncDebounceTimers.has(key)) {
+      clearTimeout(this._syncDebounceTimers.get(key));
+    }
+    const timer = setTimeout(() => {
+      this._syncDebounceTimers.delete(key);
+      fn().catch(err => console.error('[CDS Mindmap Sync Error]:', err));
+    }, delay);
+    this._syncDebounceTimers.set(key, timer);
+  }
+
+  async handleFileModified(file) {
+    if (this._syncLocks.has(file.path)) return;
+
+    // CASO A: File Markdown (.md) modificato
+    if (file.extension === 'md') {
+      // 1. Ricarica le viste Mindmap aperte su questa nota
+      const mmLeaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_MINDMAP);
+      for (const leaf of mmLeaves) {
+        const v = leaf.view;
+        if (v && v.file && v.file.path === file.path && !v._isInternalSaving) {
+          v.reloadFromMarkdown();
+        }
+      }
+
+      // 2. Sincronizzazione verso Canvas (se esiste il file .canvas collegato)
+      const canvasFile = this.findLinkedCanvasFile(file);
+      if (canvasFile instanceof TFile) {
+        this.debounceSync(`md_to_canvas_${file.path}`, async () => {
+          await this.syncMarkdownToCanvas(file, canvasFile);
+        }, 600);
+      }
+      return;
+    }
+
+    // CASO B: File Canvas (.canvas) modificato dall'utente
+    if (file.extension === 'canvas') {
+      const mdFile = this.findLinkedMarkdownFile(file);
+      if (mdFile instanceof TFile) {
+        this.debounceSync(`canvas_to_md_${file.path}`, async () => {
+          await this.syncCanvasToMarkdown(file, mdFile);
+        }, 600);
+      }
+    }
+  }
+
+  async syncMarkdownToCanvas(mdFile, canvasFile) {
+    if (this._syncLocks.has(canvasFile.path)) return;
+    try {
+      const mdContent = await this.app.vault.read(mdFile);
+      let existingCanvasData = null;
+      try {
+        const rawCanvas = await this.app.vault.read(canvasFile);
+        existingCanvasData = JSON.parse(rawCanvas);
+      } catch(e) {}
+
+      const root = MindmapEngine.parseMarkdown(mdContent, mdFile.basename, mdFile.path);
+      const newCanvasData = MindmapEngine.exportToObsidianCanvas(root, {
+        detailLevel: 'full',
+        viewMode: 'bilateral',
+        existingCanvasData,
+        sourceFilePath: mdFile.path
+      });
+
+      const newJsonStr = JSON.stringify(newCanvasData, null, 2);
+
+      this._syncLocks.add(canvasFile.path);
+      await this.app.vault.modify(canvasFile, newJsonStr);
+
+      // Aggiorna visibilità su viste Canvas aperte
+      const canvasLeaves = this.app.workspace.getLeavesOfType('canvas');
+      for (const leaf of canvasLeaves) {
+        if (leaf.view && leaf.view.file && leaf.view.file.path === canvasFile.path) {
+          this.enhanceCanvasLeaf(leaf);
+        }
+      }
+    } catch (err) {
+      console.error('[CDS Mindmap] Errore sync MD -> Canvas:', err);
+    } finally {
+      setTimeout(() => {
+        this._syncLocks.delete(canvasFile.path);
+      }, 800);
+    }
+  }
+
+  async syncCanvasToMarkdown(canvasFile, mdFile) {
+    if (this._syncLocks.has(mdFile.path)) return;
+    try {
+      const rawCanvas = await this.app.vault.read(canvasFile);
+      const canvasData = JSON.parse(rawCanvas);
+      if (!canvasData || !Array.isArray(canvasData.nodes)) return;
+
+      const newMarkdown = MindmapEngine.canvasToMarkdown(canvasData);
+      if (!newMarkdown || !newMarkdown.trim()) return;
+
+      this._syncLocks.add(mdFile.path);
+      await this.app.vault.modify(mdFile, newMarkdown);
+
+      // Notifica e ricarica le viste Mindmap aperte
+      const mmLeaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_MINDMAP);
+      for (const leaf of mmLeaves) {
+        const v = leaf.view;
+        if (v && v.file && v.file.path === mdFile.path) {
+          v.reloadFromMarkdown();
+        }
+      }
+    } catch (err) {
+      console.error('[CDS Mindmap] Errore sync Canvas -> MD:', err);
+    } finally {
+      setTimeout(() => {
+        this._syncLocks.delete(mdFile.path);
+      }, 800);
+    }
+  }
+
   async exportActiveNoteToCanvas(file) {
     try {
       const activeFile = file || this.app.workspace.getActiveFile();
@@ -5881,18 +6296,30 @@ module.exports = class CdsMindmapPlugin extends Plugin {
         new Notice('Nessuna nota Markdown selezionata.');
         return;
       }
+
+      const parentFolder = activeFile.parent ? activeFile.parent.path : '';
+      const canvasPath = parentFolder ? `${parentFolder}/${activeFile.basename}.canvas` : `${activeFile.basename}.canvas`;
+
+      const existing = this.app.vault.getAbstractFileByPath(canvasPath);
+      let existingCanvasData = null;
+      if (existing instanceof TFile) {
+        try {
+          const raw = await this.app.vault.read(existing);
+          existingCanvasData = JSON.parse(raw);
+        } catch(e) {}
+      }
+
       const content = await this.app.vault.read(activeFile);
       const root = MindmapEngine.parseMarkdown(content, activeFile.basename, activeFile.path);
       const canvasData = MindmapEngine.exportToObsidianCanvas(root, {
         detailLevel: 'full',
-        viewMode: 'bilateral'
+        viewMode: 'bilateral',
+        existingCanvasData,
+        sourceFilePath: activeFile.path
       });
 
-      const parentFolder = activeFile.parent ? activeFile.parent.path : '';
-      const canvasPath = parentFolder ? `${parentFolder}/${activeFile.basename}.canvas` : `${activeFile.basename}.canvas`;
       const jsonStr = JSON.stringify(canvasData, null, 2);
 
-      const existing = this.app.vault.getAbstractFileByPath(canvasPath);
       if (existing) {
         await this.app.vault.modify(existing, jsonStr);
       } else {
@@ -5901,6 +6328,14 @@ module.exports = class CdsMindmapPlugin extends Plugin {
 
       new Notice(`🗺️ Generato Obsidian Canvas: ${canvasPath}`);
       await this.app.workspace.openLinkText(canvasPath, '', true);
+
+      setTimeout(() => {
+        const canvasLeaves = this.app.workspace.getLeavesOfType('canvas');
+        const targetLeaf = canvasLeaves.find(l => l.view && l.view.file && l.view.file.path === canvasPath) || this.app.workspace.activeLeaf;
+        if (targetLeaf) {
+          this.enhanceCanvasLeaf(targetLeaf);
+        }
+      }, 150);
     } catch(err) {
       console.error('[CDS Mindmap] Error exporting to canvas:', err);
       new Notice(`⚠️ Errore creazione Canvas: ${err.message}`);

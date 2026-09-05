@@ -1,9 +1,10 @@
 {
   "id": "cds-mindmap",
-  "name": "CDS Mindmap & Concept Tree",
-  "version": "1.8.1",
-  "minAppVersion": "1.0.0",
-  "description": "Suite professionale studio e architettura: integrazione nativa Obsidian Canvas (.canvas) con esportazione e apertura istantanea, risoluzione totale blocco selezione (DOM non distruttivo), multi-selezione chirurgica (Shift-click/marquee), spostamento simultaneo di più nodi (multi-drag), riquadri di gruppo ed inserimento nodi sui tratti (+).",
-  "author": "VorfreudeArch",
+  "name": "CDS Mindmap",
+  "version": "1.8.2",
+  "minAppVersion": "1.4.0",
+  "description": "Mappe concettuali dinamiche e interattive (Bilateral, Radial & Top-Down), integrazione nativa e bidirezionale Obsidian Canvas (.canvas) con sincronizzazione real-time, preservazione coordinate e visibilità permanente del testo a Zero-Clic, annotazioni PDF a 2-vie e tabelle protette.",
+  "author": "CDS Team",
+  "authorUrl": "https://github.com/cds-mindmap",
   "isDesktopOnly": false
 }
