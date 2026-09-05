@@ -1,9 +1,9 @@
 {
   "id": "cds-mindmap",
   "name": "CDS Mindmap & Concept Tree",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "minAppVersion": "1.0.0",
-  "description": "Suite professionale studio e architettura: inserimento rapido nodi nel tratto tra rami (+), selezione multipla con rettangolo marquee (Shift+Drag) e Shift-Click, spostamento simultaneo di più nodi (multi-drag), creazione gruppi e riquadri frame (stile Obsidian Canvas), e densità di spaziatura personalizzabile (compatto, ultra, ampio) per eliminare ogni spazio vuoto.",
+  "description": "Suite professionale studio e architettura: integrazione nativa Obsidian Canvas (.canvas) con esportazione e apertura istantanea, risoluzione totale blocco selezione (DOM non distruttivo), multi-selezione chirurgica (Shift-click/marquee), spostamento simultaneo di più nodi (multi-drag), riquadri di gruppo ed inserimento nodi sui tratti (+).",
   "author": "VorfreudeArch",
   "isDesktopOnly": false
 }

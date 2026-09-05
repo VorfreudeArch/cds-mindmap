@@ -493,6 +493,130 @@ class MindmapEngine {
     return rootNode;
   }
 
+  // ==========================================================================
+  // METODO v1.8.1: ESPORTAZIONE NATIVA OBSIDIAN CANVAS (.canvas)
+  // ==========================================================================
+  static exportToObsidianCanvas(rootNode, options = {}) {
+    const detailLevel = options.detailLevel || 'full';
+    const viewMode = options.viewMode || 'bilateral';
+    const spacingDensity = options.spacingDensity || 'compact';
+    const customGroups = options.groups || [];
+
+    const filteredTree = MindmapEngine.filterTreeByDetail(rootNode, detailLevel);
+
+    let hGap = 130, vGap = 36;
+    if (spacingDensity === 'ultra-compact') {
+      hGap = 90; vGap = 24;
+    } else if (spacingDensity === 'standard') {
+      hGap = 160; vGap = 50;
+    }
+
+    const layoutOpts = {
+      detailLevel,
+      horizontalGap: hGap,
+      verticalGap: vGap
+    };
+
+    let layout;
+    if (viewMode === 'radial') {
+      layout = MindmapEngine.computeRadialLayout(filteredTree, layoutOpts);
+    } else if (viewMode === 'bilateral') {
+      layout = MindmapEngine.computeBilateralLayout(filteredTree, layoutOpts);
+    } else {
+      layout = MindmapEngine.computeRightLayout(filteredTree, layoutOpts);
+    }
+
+    const canvasNodes = [];
+    const canvasEdges = [];
+
+    // Colori Obsidian Canvas nativi (1-6)
+    // 1: Rosso/Corallo, 2: Arancio, 3: Giallo, 4: Verde, 5: Blu/Azzurro, 6: Viola
+    const depthColors = ['5', '1', '2', '4', '6', '3'];
+
+    layout.nodes.forEach(n => {
+      let color = depthColors[Math.min(n.depth, depthColors.length - 1)];
+
+      let nodeText = '';
+      if (n.depth === 0) {
+        nodeText = `# ${n.text}`;
+      } else if (n.depth === 1) {
+        nodeText = `### ${n.text}`;
+      } else {
+        nodeText = `**${n.text}**`;
+      }
+
+      if (n.bodyText) {
+        nodeText += '\n\n' + n.bodyText.trim();
+      }
+
+      const w = Math.round(Math.max(n.width, 240));
+      const h = Math.round(Math.max(n.height, 80));
+
+      canvasNodes.push({
+        id: n.id,
+        type: 'text',
+        text: nodeText,
+        x: Math.round(n.x),
+        y: Math.round(n.y),
+        width: w,
+        height: h,
+        color
+      });
+    });
+
+    // Gruppi personalizzati esportati come nodi 'group' nativi di Obsidian Canvas
+    if (customGroups && customGroups.length > 0) {
+      customGroups.forEach(grp => {
+        const members = layout.nodes.filter(n => grp.nodeIds && grp.nodeIds.includes(n.id));
+        if (!members.length) return;
+
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const m of members) {
+          minX = Math.min(minX, m.x);
+          minY = Math.min(minY, m.y);
+          maxX = Math.max(maxX, m.x + m.width);
+          maxY = Math.max(maxY, m.y + m.height);
+        }
+
+        const pad = 30;
+        canvasNodes.push({
+          id: grp.id,
+          type: 'group',
+          label: grp.label || 'Gruppo Concetti',
+          x: Math.round(minX - pad),
+          y: Math.round(minY - pad - 24),
+          width: Math.round((maxX - minX) + pad * 2),
+          height: Math.round((maxY - minY) + pad * 2 + 24),
+          color: '4'
+        });
+      });
+    }
+
+    // Edges (collegamenti)
+    layout.paths.forEach((p, idx) => {
+      const fromN = layout.nodes.find(n => n.id === p.fromId);
+      const toN = layout.nodes.find(n => n.id === p.toId);
+      if (!fromN || !toN) return;
+
+      const isRight = (toN.x + toN.width / 2) >= (fromN.x + fromN.width / 2);
+      const toColor = depthColors[Math.min(toN.depth, depthColors.length - 1)];
+
+      canvasEdges.push({
+        id: `e_${idx}_${p.fromId}_${p.toId}`,
+        fromNode: p.fromId,
+        fromSide: isRight ? 'right' : 'left',
+        toNode: p.toId,
+        toSide: isRight ? 'left' : 'right',
+        color: toColor
+      });
+    });
+
+    return {
+      nodes: canvasNodes,
+      edges: canvasEdges
+    };
+  }
+
   static filterTreeByDetail(node, level = 'keypoints') {
     const clone = {
       ...node,
@@ -3000,6 +3124,7 @@ class MindmapCanvas {
     mkCanvasBtn('📄', 'Mostra perimetro foglio A0-A6 sul canvas', () => this.toggleSheetOverlay(), this.showSheetOverlay);
     mkCanvasBtn('🗺️', 'Attiva/Disattiva Minimap Radar', () => this.toggleMinimap());
     mkCanvasBtn('📤 <span class="cds-mm-btn-text">Esporta</span>', 'Esporta in PDF, PNG, SVG Vettoriale da A0 ad A6', () => this.openExportModal());
+    mkCanvasBtn('🗺️ <span class="cds-mm-btn-text">Canvas (.canvas)</span>', 'Esporta e apri direttamente in Obsidian Canvas nativo (.canvas)', () => this.openInObsidianCanvas());
 
     // GRUPPO 5: RICERCA CON NAVIGAZIONE SEQUENZIALE
     const groupSearch = this.topDock.createDiv({ cls: 'cds-mm-dock-group cds-mm-search-dock-group' });
@@ -3198,6 +3323,7 @@ class MindmapCanvas {
       if (node.y + node.height > maxY) maxY = node.y + node.height + 220;
 
       const isSelected = node.id === this.selectedNodeId;
+      const isMultiSelected = this.selectedNodeIds && this.selectedNodeIds.has(node.id);
 
       const nodeEl = this.nodesLayer.createDiv({
         cls: 'cds-mm-node' +
@@ -3206,10 +3332,12 @@ class MindmapCanvas {
           (node.type === 'keypoint' ? ' is-keypoint' : '') +
           (node.layout === 'table' ? ' is-table-node' : '') +
           (isSelected ? ' is-selected' : '') +
+          (isMultiSelected ? ' is-multi-selected' : '') +
           (node.direction === 'left' ? ' is-left' : ' is-right')
       });
 
       nodeEl.setAttribute('data-node-id', node.id);
+      nodeEl.setAttribute('data-id', node.id);
       nodeEl.style.left = `${node.x}px`;
       nodeEl.style.top = `${node.y}px`;
       nodeEl.style.width = `${node.width}px`;
@@ -3426,10 +3554,44 @@ class MindmapCanvas {
       };
 
       nodeEl.onmousedown = (ev) => {
-        if (((ev.ctrlKey || ev.metaKey) && ev.target.closest('.cds-mm-wikilink')) || ev.target.closest('a') || ev.target.closest('.cds-mm-pdf-badge') || ev.target.closest('.cds-mm-fold-btn') || ev.target.closest('.cds-mm-footnote')) {
-          ev.stopPropagation();
+        if (((ev.ctrlKey || ev.metaKey) && ev.target.closest('.cds-mm-wikilink')) ||
+            ev.target.closest('a') ||
+            ev.target.closest('.cds-mm-pdf-badge') ||
+            ev.target.closest('.cds-mm-fold-btn') ||
+            ev.target.closest('.cds-mm-footnote') ||
+            ev.target.closest('.cds-mm-node-actions') ||
+            ev.target.closest('.cds-mm-resize-handle')) {
           return;
         }
+
+        // Selezione Multipla con Shift / Ctrl / Cmd (v1.8.1)
+        if (ev.shiftKey || ev.ctrlKey || ev.metaKey) {
+          ev.stopPropagation();
+          if (!this.selectedNodeIds) this.selectedNodeIds = new Set();
+          if (this.selectedNodeIds.has(node.id)) {
+            this.selectedNodeIds.delete(node.id);
+            if (this.selectedNodeId === node.id) {
+              this.selectedNodeId = this.selectedNodeIds.size > 0 ? Array.from(this.selectedNodeIds)[0] : null;
+            }
+          } else {
+            this.selectedNodeIds.add(node.id);
+            this.selectedNodeId = node.id;
+          }
+          this.updateSelectionVisuals();
+          this.updateMultiSelectToolbar();
+          return;
+        }
+
+        // Selezione Singola Standard:
+        // Se il nodo non fa parte della selezione multipla attiva, reimposta la selezione su questo nodo
+        if (!this.selectedNodeIds) this.selectedNodeIds = new Set();
+        if (!this.selectedNodeIds.has(node.id)) {
+          this.selectedNodeIds.clear();
+          this.selectedNodeIds.add(node.id);
+        }
+        this.selectedNodeId = node.id;
+        this.updateSelectionVisuals();
+        this.updateMultiSelectToolbar();
 
         ev.stopPropagation();
         this.selectNode(node.id);
@@ -3950,6 +4112,52 @@ class MindmapCanvas {
     modal.open();
   }
 
+  async openInObsidianCanvas() {
+    try {
+      if (!this.rawRootNode) {
+        new Notice('Nessuna mappa concettuale attiva.');
+        return;
+      }
+
+      const canvasData = MindmapEngine.exportToObsidianCanvas(this.rawRootNode, {
+        detailLevel: this.detailLevel,
+        viewMode: this.viewMode,
+        groups: this.groups,
+        spacingDensity: this.spacingDensity
+      });
+
+      const baseName = (this.rawRootNode.text || 'Mappa_Concettuale').replace(/[/\\?%*:|"<>]/g, '_').trim();
+      let canvasPath = '';
+      if (this.filePath) {
+        const folder = this.filePath.includes('/') ? this.filePath.substring(0, this.filePath.lastIndexOf('/')) : '';
+        canvasPath = folder ? `${folder}/${baseName}.canvas` : `${baseName}.canvas`;
+      } else {
+        canvasPath = `Mappe Concettuali/${baseName}.canvas`;
+      }
+
+      const jsonStr = JSON.stringify(canvasData, null, 2);
+      const existingFile = this.app.vault.getAbstractFileByPath(canvasPath);
+
+      if (existingFile) {
+        await this.app.vault.modify(existingFile, jsonStr);
+      } else {
+        const parentFolder = canvasPath.includes('/') ? canvasPath.substring(0, canvasPath.lastIndexOf('/')) : '';
+        if (parentFolder && !this.app.vault.getAbstractFileByPath(parentFolder)) {
+          try {
+            await this.app.vault.createFolder(parentFolder);
+          } catch(e) {}
+        }
+        await this.app.vault.create(canvasPath, jsonStr);
+      }
+
+      new Notice(`🗺️ Mappa esportata in Obsidian Canvas: ${canvasPath}`);
+      await this.app.workspace.openLinkText(canvasPath, '', true);
+    } catch(err) {
+      console.error('[CDS Mindmap] Error opening in Obsidian Canvas:', err);
+      new Notice(`⚠️ Errore apertura Canvas: ${err.message}`);
+    }
+  }
+
   initNodeDrag(node, nodeEl, ev) {
     const rawNode = this.findRawNode(node.id);
     if (!rawNode) return;
@@ -4339,6 +4547,11 @@ class MindmapCanvas {
       } else {
         el.classList.remove('is-multi-selected');
       }
+      if (id === this.selectedNodeId) {
+        el.classList.add('is-selected');
+      } else if (!this.selectedNodeIds || !this.selectedNodeIds.has(id)) {
+        el.classList.remove('is-selected');
+      }
     });
   }
 
@@ -4726,11 +4939,16 @@ class MindmapCanvas {
   }
 
   deselectAll() {
-    if (!this.selectedNodeId) return;
+    if (!this.selectedNodeId && (!this.selectedNodeIds || this.selectedNodeIds.size === 0)) return;
     this.selectedNodeId = null;
+    if (this.selectedNodeIds) this.selectedNodeIds.clear();
     this.floatingBar.style.display = 'none';
+    if (this.multiSelectToolbar) this.multiSelectToolbar.style.display = 'none';
     this.updateHierarchyGlow(null);
-    this.nodesLayer.querySelectorAll('.cds-mm-node.is-selected').forEach(el => el.classList.remove('is-selected'));
+    this.nodesLayer.querySelectorAll('.cds-mm-node').forEach(el => {
+      el.classList.remove('is-selected');
+      el.classList.remove('is-multi-selected');
+    });
     
     // Rimuovi indicatori di flash temporanei nell'editor Markdown
     const flashes = document.querySelectorAll('.cds-mm-editor-flash');
@@ -4743,8 +4961,16 @@ class MindmapCanvas {
 
   selectNode(nodeId) {
     this.selectedNodeId = nodeId;
-    this.render();
+    if (!this.selectedNodeIds) this.selectedNodeIds = new Set();
+    if (!this.selectedNodeIds.has(nodeId)) {
+      this.selectedNodeIds.add(nodeId);
+    }
+    this.updateSelectionVisuals();
     this.updateHierarchyGlow(nodeId);
+    const selEl = this.nodesLayer.querySelector(`[data-id="${nodeId}"]`) || this.nodesLayer.querySelector(`[data-node-id="${nodeId}"]`);
+    if (selEl) {
+      this.updateFloatingBar(selEl);
+    }
   }
 
     findRawNodeByText(text, node = this.rawRootNode) {
@@ -5562,6 +5788,19 @@ module.exports = class CdsMindmapPlugin extends Plugin {
     });
 
     this.addCommand({
+      id: 'export-active-note-to-canvas',
+      name: 'Esporta e apri nota attiva come Obsidian Canvas (.canvas)',
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (file && file.extension === 'md') {
+          if (!checking) this.exportActiveNoteToCanvas(file);
+          return true;
+        }
+        return false;
+      }
+    });
+
+    this.addCommand({
       id: 'create-new-mindmap',
       name: 'Crea nuova Mappa Concettuale Radiale',
       callback: async () => {
@@ -5632,6 +5871,39 @@ module.exports = class CdsMindmapPlugin extends Plugin {
       await this.openFileAsMindmap(file);
     } else {
       new Notice('Nessuna nota attiva da trasformare in mappa.');
+    }
+  }
+
+  async exportActiveNoteToCanvas(file) {
+    try {
+      const activeFile = file || this.app.workspace.getActiveFile();
+      if (!activeFile) {
+        new Notice('Nessuna nota Markdown selezionata.');
+        return;
+      }
+      const content = await this.app.vault.read(activeFile);
+      const root = MindmapEngine.parseMarkdown(content, activeFile.basename, activeFile.path);
+      const canvasData = MindmapEngine.exportToObsidianCanvas(root, {
+        detailLevel: 'full',
+        viewMode: 'bilateral'
+      });
+
+      const parentFolder = activeFile.parent ? activeFile.parent.path : '';
+      const canvasPath = parentFolder ? `${parentFolder}/${activeFile.basename}.canvas` : `${activeFile.basename}.canvas`;
+      const jsonStr = JSON.stringify(canvasData, null, 2);
+
+      const existing = this.app.vault.getAbstractFileByPath(canvasPath);
+      if (existing) {
+        await this.app.vault.modify(existing, jsonStr);
+      } else {
+        await this.app.vault.create(canvasPath, jsonStr);
+      }
+
+      new Notice(`🗺️ Generato Obsidian Canvas: ${canvasPath}`);
+      await this.app.workspace.openLinkText(canvasPath, '', true);
+    } catch(err) {
+      console.error('[CDS Mindmap] Error exporting to canvas:', err);
+      new Notice(`⚠️ Errore creazione Canvas: ${err.message}`);
     }
   }
 
