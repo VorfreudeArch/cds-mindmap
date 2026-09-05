@@ -1,5 +1,5 @@
 /* ==========================================================================
-   CDS Mindmap & Mappe Concettuali (MarkMind & Enhancing Mindmap Suite)
+   CDS Mindmap & Mappe Concettuali (MarkMind & Enhancing Mindmap Suite v2)
    ========================================================================== */
 
 .cds-mm-container {
@@ -7,97 +7,86 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: var(--background-primary, #0f121d);
+  background: var(--background-primary, #0d1117);
   user-select: none;
   font-family: var(--font-text, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
 }
 
-/* Floating Toolbar */
-.cds-mm-toolbar {
+/* ================== UNIFIED TOP CONTROL DOCK ================== */
+.cds-mm-top-dock {
   position: absolute;
-  top: 14px;
-  right: 18px;
-  z-index: 50;
+  top: 10px;
+  left: 14px;
+  right: 14px;
+  z-index: 100;
   display: flex;
   align-items: center;
-  gap: 6px;
-  background: rgba(22, 27, 44, 0.88);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 10px;
-  padding: 5px 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  justify-content: space-between;
+  gap: 8px;
+  pointer-events: none;
 }
 
-.cds-mm-btn {
+.cds-mm-dock-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(22, 27, 46, 0.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 4px 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  pointer-events: auto;
+}
+
+.cds-mm-dock-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted, #94a3b8);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 0 6px;
+}
+
+/* Button Styling in Dock */
+.cds-mm-dock-btn {
   background: transparent;
-  border: none;
+  border: 1px solid transparent;
   color: var(--text-normal, #e2e8f0);
   cursor: pointer;
-  padding: 6px 10px;
+  padding: 5px 9px;
   border-radius: 6px;
-  font-size: 0.84rem;
+  font-size: 0.78rem;
   font-weight: 600;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  transition: all 0.18s ease;
+  gap: 4px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
-.cds-mm-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+.cds-mm-dock-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
   color: #38bdf8;
   transform: translateY(-1px);
 }
 
-.cds-mm-btn.is-active {
-  background: rgba(56, 189, 248, 0.2);
-  color: #38bdf8;
-  border: 1px solid rgba(56, 189, 248, 0.4);
+.cds-mm-dock-btn.is-active {
+  background: #38bdf8;
+  color: #0f172a;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(56, 189, 248, 0.35);
 }
 
 .cds-mm-divider {
   width: 1px;
-  height: 18px;
+  height: 16px;
   background: rgba(255, 255, 255, 0.15);
-  margin: 0 3px;
+  margin: 0 2px;
 }
 
-/* Mode Switcher Pill in Top Left */
-.cds-mm-mode-bar {
-  position: absolute;
-  top: 14px;
-  left: 18px;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  background: rgba(22, 27, 44, 0.88);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 10px;
-  padding: 4px 6px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-}
-
-.cds-mm-mode-btn {
-  padding: 5px 11px;
-  border-radius: 6px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--text-muted, #94a3b8);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  transition: all 0.18s ease;
-}
-
-.cds-mm-mode-btn.is-active {
-  background: #38bdf8;
-  color: #0f172a;
-}
-
-/* Canvas Area */
+/* ================== CANVAS VIEWPORT ================== */
 .cds-mm-viewport {
   position: absolute;
   top: 0;
@@ -106,6 +95,7 @@
   height: 100%;
   overflow: hidden;
   cursor: grab;
+  padding-bottom: 50px; /* Safe-area above Obsidian status bar */
 }
 
 .cds-mm-viewport.is-dragging {
@@ -131,17 +121,17 @@
 
 .cds-mm-branch-path {
   fill: none;
-  stroke-width: 2.4px;
+  stroke-width: 2.2px;
   stroke-linecap: round;
   transition: stroke 0.2s ease, stroke-width 0.2s ease;
 }
 
 .cds-mm-branch-path.is-selected {
   stroke-width: 3.8px;
-  filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.6));
+  filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.7));
 }
 
-/* HTML Nodes */
+/* ================== HTML NODES ================== */
 .cds-mm-nodes-layer {
   position: absolute;
   top: 0;
@@ -154,50 +144,77 @@
   pointer-events: auto;
   box-sizing: border-box;
   display: flex;
-  align-items: center;
-  background: rgba(30, 36, 56, 0.94);
+  flex-direction: column;
+  justify-content: center;
+  background: rgba(26, 32, 53, 0.94);
   border: 1.5px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
-  padding: 6px 12px;
+  padding: 7px 12px;
   color: var(--text-normal, #f1f5f9);
-  font-size: 0.88rem;
+  font-size: 0.86rem;
   line-height: 1.35;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
-  white-space: pre-wrap;
+  white-space: normal;
   word-break: break-word;
-  max-width: 380px;
+  max-width: 360px;
 }
 
 .cds-mm-node:hover {
   transform: translateY(-1px);
-  border-color: rgba(56, 189, 248, 0.6);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  border-color: rgba(56, 189, 248, 0.7);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
 }
 
 .cds-mm-node.is-selected {
-  border-color: #38bdf8 !0important;
-  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.35), 0 8px 25px rgba(0, 0, 0, 0.5);
-  background: rgba(38, 48, 76, 0.98);
+  border-color: #38bdf8 !important;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.35), 0 8px 25px rgba(0, 0, 0, 0.55);
+  background: rgba(35, 45, 75, 0.98);
 }
 
 /* Root Node Specific Styling */
 .cds-mm-node.is-root {
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  background: linear-gradient(135deg, #1d4ed8, #2563eb);
   color: #ffffff;
-  font-size: 1.15rem;
+  font-size: 1.12rem;
   font-weight: 700;
   border-radius: 12px;
-  padding: 10px 20px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  box-shadow: 0 8px 25px rgba(37, 99, 235, 0.4);
+  padding: 12px 22px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 8px 28px rgba(37, 99, 235, 0.45);
 }
 
 /* Depth Levels */
 .cds-mm-node.level-1 {
+  font-weight: 700;
+  font-size: 0.94rem;
+  background: rgba(30, 39, 66, 0.96);
+}
+
+.cds-mm-node.level-2 {
   font-weight: 600;
-  font-size: 0.96rem;
+  font-size: 0.88rem;
+}
+
+.cds-mm-node-title {
+  font-weight: 600;
+}
+
+/* Extended Content / Paragraph Truncation */
+.cds-mm-node-body {
+  font-size: 0.78rem;
+  color: var(--text-muted, #94a3b8);
+  margin-top: 4px;
+  line-height: 1.3;
+}
+
+.cds-mm-expand-toggle {
+  font-size: 0.72rem;
+  color: #38bdf8;
+  cursor: pointer;
+  margin-top: 3px;
+  font-weight: 600;
 }
 
 /* PDF Excerpt Badge */
@@ -205,9 +222,9 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-top: 4px;
-  background: rgba(239, 68, 68, 0.18);
-  border: 1px solid rgba(239, 68, 68, 0.4);
+  margin-top: 5px;
+  background: rgba(239, 68, 68, 0.16);
+  border: 1px solid rgba(239, 68, 68, 0.35);
   color: #fca5a5;
   font-size: 0.72rem;
   font-weight: 700;
@@ -215,18 +232,18 @@
   border-radius: 5px;
   cursor: pointer;
   transition: all 0.15s ease;
+  width: fit-content;
 }
 
 .cds-mm-pdf-badge:hover {
-  background: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.3);
   color: #fee2e2;
-  transform: scale(1.04);
+  transform: scale(1.03);
 }
 
 /* Fold / Unfold Pill Button */
 .cds-mm-fold-btn {
   position: absolute;
-  right: -10px;
   top: 50%;
   transform: translateY(-50%);
   width: 18px;
@@ -243,6 +260,14 @@
   cursor: pointer;
   transition: all 0.15s ease;
   z-index: 10;
+}
+
+.cds-mm-node.is-right .cds-mm-fold-btn {
+  right: -10px;
+}
+
+.cds-mm-node.is-left .cds-mm-fold-btn {
+  left: -10px;
 }
 
 .cds-mm-fold-btn:hover {
@@ -263,7 +288,6 @@
 /* Quick Add Node (+) on Hover */
 .cds-mm-add-btn {
   position: absolute;
-  right: -26px;
   top: 50%;
   transform: translateY(-50%);
   width: 18px;
@@ -279,6 +303,14 @@
   cursor: pointer;
   transition: all 0.15s ease;
   z-index: 10;
+}
+
+.cds-mm-node.is-right .cds-mm-add-btn {
+  right: -26px;
+}
+
+.cds-mm-node.is-left .cds-mm-add-btn {
+  left: -26px;
 }
 
 .cds-mm-node:hover .cds-mm-add-btn {
@@ -304,23 +336,13 @@
   outline: none;
   z-index: 60;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
-  min-width: 140px;
+  min-width: 160px;
 }
 
 /* Drag Ghost & Drop Target Line */
 .cds-mm-node.is-ghost {
-  opacity: 0.4;
+  opacity: 0.35;
   border-style: dashed;
-}
-
-.cds-mm-drop-line {
-  position: absolute;
-  height: 3px;
-  background: #38bdf8;
-  border-radius: 2px;
-  box-shadow: 0 0 8px #38bdf8;
-  z-index: 40;
-  pointer-events: none;
 }
 
 .cds-mm-node.is-drop-target {
@@ -328,76 +350,118 @@
   box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.4) !important;
 }
 
-/* Keyboard Guide Footer */
-.cds-mm-footer-guide {
+/* ================== TABLE / MATRIX VIEW ================== */
+.cds-mm-table-container {
   position: absolute;
-  bottom: 12px;
+  top: 60px;
   left: 18px;
-  z-index: 50;
-  display: flex;
-  gap: 12px;
-  background: rgba(15, 23, 42, 0.82);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  padding: 5px 12px;
-  font-size: 0.74rem;
-  color: var(--text-muted, #94a3b8);
+  right: 18px;
+  bottom: 24px;
+  overflow: auto;
+  background: rgba(22, 27, 44, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  padding: 16px;
 }
 
-.cds-mm-footer-guide kbd {
-  background: rgba(255, 255, 255, 0.12);
-  color: #f1f5f9;
-  padding: 1px 5px;
+.cds-mm-table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--text-normal, #f1f5f9);
+  font-size: 0.86rem;
+}
+
+.cds-mm-table th {
+  background: rgba(30, 41, 69, 0.98);
+  color: #38bdf8;
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.15);
+  font-weight: 700;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.cds-mm-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  vertical-align: top;
+}
+
+.cds-mm-table tr:hover td {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.cds-mm-table-cell {
+  outline: none;
+  padding: 3px 6px;
   border-radius: 4px;
-  font-family: inherit;
-  font-weight: 600;
-  margin-right: 3px;
+  border: 1px solid transparent;
 }
 
-/* Embedded Codeblock Viewport */
+.cds-mm-table-cell:focus {
+  border-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.1);
+}
+
+/* ================== OUTLINE VIEW ================== */
+.cds-mm-outline-container {
+  position: absolute;
+  top: 60px;
+  left: 18px;
+  right: 18px;
+  bottom: 24px;
+  overflow: auto;
+  background: rgba(22, 27, 44, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  padding: 24px 30px;
+}
+
+.cds-mm-outline-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.cds-mm-outline-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.cds-mm-outline-bullet {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #38bdf8;
+  flex-shrink: 0;
+}
+
+.cds-mm-outline-text {
+  flex: 1;
+  font-size: 0.9rem;
+  color: var(--text-normal, #f1f5f9);
+  outline: none;
+}
+
+.cds-mm-outline-text:focus {
+  background: rgba(56, 189, 248, 0.1);
+  border-radius: 4px;
+}
+
+/* ================== CODEBLOCK EMBED ================== */
 .cds-mm-codeblock {
   width: 100%;
-  height: 480px;
+  height: 520px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   overflow: hidden;
-  margin: 14px 0;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
-}
-
-/* Split View PDF + Mindmap in CDS Docs */
-.cds-docs-split-container {
-  display: flex;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-}
-
-.cds-docs-split-pdf {
-  flex: 1 1 50%;
-  height: 100%;
-  position: relative;
-  border-right: 1px solid rgba(255, 255, 255, 0.1);
-  overflow: hidden;
-}
-
-.cds-docs-split-mindmap {
-  flex: 1 1 50%;
-  height: 100%;
-  position: relative;
-  background: var(--background-primary, #0f121d);
-  overflow: hidden;
-}
-
-.cds-docs-resizer {
-  width: 5px;
-  cursor: col-resize;
-  background: rgba(255, 255, 255, 0.06);
-  transition: background 0.15s ease;
-  z-index: 40;
-}
-
-.cds-docs-resizer:hover {
-  background: #38bdf8;
+  margin: 16px 0;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
 }

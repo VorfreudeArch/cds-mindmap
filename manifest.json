@@ -1,9 +1,9 @@
 {
   "id": "cds-mindmap",
   "name": "CDS Mappe Concettuali & Mindmap (MarkMind)",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "minAppVersion": "1.4.0",
-  "description": "Mappe concettuali interattive ed editabili bidirezionali da qualsiasi nota Markdown (titoli ed elenchi), shortcut tastiera, drag&drop, modalità basic/rich, outline, tabella, codeblock mindmap e collegamento annotazioni PDF.",
+  "description": "Mappe concettuali interattive ed editabili bidirezionali: layout bilaterale organico (MarkMind), viste multiple (Mappa Bilaterale, Albero a Destra, Tabella Matrice, Outline), filtri livello dettaglio (Solo Titoli, Punti Chiave, Tutto), drag&drop libero dei capitoli, sync in tempo reale e collegamento PDF Annotate.",
   "author": "Conce",
   "isDesktopOnly": false
 }

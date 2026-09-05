@@ -14,19 +14,16 @@ const BRANCH_COLORS = [
 ];
 
 // ==========================================================================
-// 1. MindmapEngine: Parser, Serializer & Layout Core
+// 1. MindmapEngine: Parser, Serializer, Filtro Dettaglio & Multi-Layout
 // ==========================================================================
 
 class MindmapEngine {
-  /**
-   * Genera un ID univoco per il nodo
-   */
   static genId() {
     return 'node_' + Math.random().toString(36).substr(2, 9);
   }
 
   /**
-   * Analizza una stringa Markdown e genera l'albero gerarchico dei nodi
+   * Analizza Markdown e costruisce l'albero AST
    */
   static parseMarkdown(mdText, fallbackTitle = 'Mappa Concettuale') {
     if (!mdText || !mdText.trim()) {
@@ -34,13 +31,13 @@ class MindmapEngine {
         id: 'root',
         text: fallbackTitle,
         depth: 0,
+        type: 'heading',
         children: [],
         collapsed: false,
         isRoot: true
       };
     }
 
-    // 1. Rimuovi frontmatter YAML
     let content = mdText;
     let frontmatter = null;
     const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
@@ -54,9 +51,11 @@ class MindmapEngine {
       id: 'root',
       text: fallbackTitle,
       depth: 0,
+      type: 'heading',
       children: [],
       collapsed: false,
-      isRoot: true
+      isRoot: true,
+      frontmatter
     };
 
     let currentParentStack = [rootNode];
@@ -67,7 +66,7 @@ class MindmapEngine {
       const trimmed = line.trim();
       if (!trimmed) continue;
 
-      // Analizza link PDF: [[Documento.pdf#page=5&rect=x,y,w,h|Testo]]
+      // Link PDF: [[Documento.pdf#page=5&rect=x,y,w,h|Testo]]
       let pdfLink = null;
       const pdfMatch = trimmed.match(/\[\[([^#\]]+\.pdf)(?:#page=(\d+)(?:&rect=([0-9.,]+))?)?(?:\|([^\]]+))?\]\]/i);
       if (pdfMatch) {
@@ -97,12 +96,13 @@ class MindmapEngine {
           id: MindmapEngine.genId(),
           text,
           depth: level,
+          type: 'heading',
           children: [],
           collapsed: false,
-          pdfLink
+          pdfLink,
+          bodyText: ''
         };
 
-        // Trova il genitore appropriato per questo livello
         while (currentParentStack.length > 1 && currentParentStack[currentParentStack.length - 1].depth >= level) {
           currentParentStack.pop();
         }
@@ -113,7 +113,7 @@ class MindmapEngine {
         continue;
       }
 
-      // Check List Item (- item, * item, + item, 1. item)
+      // Check List Item (- item, * item, + item, 1. item) -> Punti chiave
       const listMatch = line.match(/^(\s*)(?:[-*+]|\d+\.)\s+(.*)$/);
       if (listMatch) {
         const indent = listMatch[1].replace(/\t/g, '  ').length;
@@ -124,9 +124,11 @@ class MindmapEngine {
           id: MindmapEngine.genId(),
           text,
           depth: listLevel,
+          type: 'keypoint',
           children: [],
           collapsed: false,
-          pdfLink
+          pdfLink,
+          bodyText: ''
         };
 
         while (currentParentStack.length > 1 && currentParentStack[currentParentStack.length - 1].depth >= listLevel) {
@@ -139,11 +141,11 @@ class MindmapEngine {
         continue;
       }
 
-      // Testo normale sotto un nodo (arricchisce il testo del nodo precedente)
+      // Testo normale di paragrafo (approfondimento del nodo genitore)
       if (currentParentStack.length > 1) {
         const lastNode = currentParentStack[currentParentStack.length - 1];
         if (lastNode && !lastNode.isRoot) {
-          lastNode.text += '\n' + trimmed;
+          lastNode.bodyText = (lastNode.bodyText ? lastNode.bodyText + '\n' : '') + trimmed;
         }
       }
     }
@@ -152,12 +154,34 @@ class MindmapEngine {
   }
 
   /**
-   * Converte l'albero gerarchico in una stringa Markdown pulita
+   * Filtra l'albero in base al livello di dettaglio richiesto dall'utente
+   * @param {'titles' | 'keypoints' | 'full'} level
+   */
+  static filterTreeByDetail(node, level = 'keypoints') {
+    const clone = {
+      ...node,
+      children: []
+    };
+
+    if (node.children && node.children.length) {
+      for (const child of node.children) {
+        if (level === 'titles' && child.type !== 'heading') {
+          continue; // Mostra solo i titoli H1..H6
+        }
+        // In keypoints o full include anche i punti elenco
+        clone.children.push(MindmapEngine.filterTreeByDetail(child, level));
+      }
+    }
+
+    return clone;
+  }
+
+  /**
+   * Converte l'albero in Markdown pulito preservando la gerarchia
    */
   static serializeToMarkdown(rootNode, originalFm = '') {
     const lines = [];
 
-    // Preserva il frontmatter o aggiungi la firma basic
     if (originalFm) {
       lines.push('---');
       lines.push(originalFm.trim());
@@ -171,7 +195,6 @@ class MindmapEngine {
       lines.push('');
     }
 
-    // Titolo radice
     lines.push(`# ${rootNode.text || 'Mappa Concettuale'}`);
     lines.push('');
 
@@ -181,23 +204,24 @@ class MindmapEngine {
       for (const child of node.children) {
         let nodeText = child.text || 'Nuovo Concetto';
 
-        // Se ha link PDF serializza
         if (child.pdfLink && !nodeText.includes('.pdf')) {
           const p = child.pdfLink;
           const rectStr = p.rect ? `&rect=${p.rect.join(',')}` : '';
           nodeText += ` [[${p.file}#page=${p.page}${rectStr}|📄 Pag. ${p.page}]]`;
         }
 
-        if (depth === 1) {
-          lines.push(`## ${nodeText}`);
-        } else if (depth === 2) {
-          lines.push(`### ${nodeText}`);
-        } else if (depth === 3) {
-          lines.push(`#### ${nodeText}`);
+        if (child.type === 'heading' || depth <= 3) {
+          const hashes = '#'.repeat(Math.min(6, depth + 1));
+          lines.push(`${hashes} ${nodeText}`);
         } else {
-          const indent = '  '.repeat(depth - 4);
+          const indent = '  '.repeat(Math.max(0, depth - 4));
           lines.push(`${indent}- ${nodeText}`);
         }
+
+        if (child.bodyText) {
+          lines.push(child.bodyText);
+        }
+        lines.push('');
 
         if (child.children && child.children.length) {
           walk(child, depth + 1);
@@ -210,95 +234,236 @@ class MindmapEngine {
   }
 
   /**
-   * Calcola le dimensioni e le coordinate di tutti i nodi e genera le curve Bezier
+   * Calcola le dimensioni di ogni nodo in base al testo e al dettaglio
    */
-  static computeLayout(rootNode, options = {}) {
-    const layoutMode = options.mode || 'horizontal-right'; // 'horizontal-right', 'bilateral', 'outline'
-    const horizontalGap = options.horizontalGap || 70;
-    const verticalGap = options.verticalGap || 18;
+  static measureNode(node, detailLevel = 'keypoints') {
+    const text = node.text || '';
+    const lines = text.split('\n');
+    const maxLineLen = lines.reduce((max, l) => Math.max(max, l.length), 0);
 
-    // 1. Assegna larghezza e altezza a ciascun nodo
-    const measureNode = (node) => {
-      const text = node.text || '';
-      const lines = text.split('\n');
-      const maxLineLen = lines.reduce((max, l) => Math.max(max, l.length), 0);
-      
-      node.width = Math.max(90, Math.min(340, maxLineLen * 8.8 + 32));
-      node.height = Math.max(38, lines.length * 20 + 16 + (node.pdfLink ? 20 : 0));
+    let w = Math.max(100, Math.min(300, maxLineLen * 8.6 + 32));
+    let h = Math.max(38, lines.length * 20 + 16);
 
-      if (node.isRoot) {
-        node.width = Math.max(120, maxLineLen * 10 + 40);
-        node.height = Math.max(48, lines.length * 24 + 20);
-      }
+    if (detailLevel === 'full' && node.bodyText) {
+      w = Math.max(w, 240);
+      h += Math.min(80, node.bodyText.length * 0.5 + 20);
+    }
 
-      if (node.children && node.children.length && !node.collapsed) {
-        for (const child of node.children) {
-          measureNode(child);
-        }
-      }
-    };
+    if (node.pdfLink) {
+      h += 22;
+      w = Math.max(w, 160);
+    }
 
-    measureNode(rootNode);
+    if (node.isRoot) {
+      w = Math.max(140, maxLineLen * 10 + 44);
+      h = Math.max(52, lines.length * 24 + 22);
+    }
 
-    // 2. Calcola l'altezza di ogni sotto-albero
-    const computeSubtreeHeight = (node) => {
-      if (!node.children || !node.children.length || node.collapsed) {
-        node.subtreeHeight = node.height + verticalGap;
-        return node.subtreeHeight;
-      }
-      let sum = 0;
+    node.width = w;
+    node.height = h;
+
+    if (node.children && node.children.length && !node.collapsed) {
       for (const child of node.children) {
-        sum += computeSubtreeHeight(child);
+        MindmapEngine.measureNode(child, detailLevel);
       }
-      node.subtreeHeight = Math.max(node.height + verticalGap, sum);
+    }
+  }
+
+  /**
+   * Calcola l'altezza di un sotto-albero
+   */
+  static computeSubtreeHeight(node, verticalGap = 16) {
+    if (!node.children || !node.children.length || node.collapsed) {
+      node.subtreeHeight = node.height + verticalGap;
       return node.subtreeHeight;
-    };
+    }
+    let sum = 0;
+    for (const child of node.children) {
+      sum += MindmapEngine.computeSubtreeHeight(child, verticalGap);
+    }
+    node.subtreeHeight = Math.max(node.height + verticalGap, sum);
+    return node.subtreeHeight;
+  }
 
-    computeSubtreeHeight(rootNode);
+  /**
+   * LAYOUT 1: MAPPA BILATERALE (Organica, rami a sinistra e destra)
+   */
+  static computeBilateralLayout(rootNode, options = {}) {
+    const horizontalGap = options.horizontalGap || 70;
+    const verticalGap = options.verticalGap || 16;
+    const detailLevel = options.detailLevel || 'keypoints';
 
-    // 3. Posiziona i nodi nel canvas
-    const renderedNodes = [];
+    MindmapEngine.measureNode(rootNode, detailLevel);
+
+    const children = rootNode.children || [];
+    const rightChildren = [];
+    const leftChildren = [];
+
+    // Distribuzione bilanciata destra/sinistra
+    for (let i = 0; i < children.length; i++) {
+      if (children[i].manualSide === 'left') {
+        leftChildren.push(children[i]);
+      } else if (children[i].manualSide === 'right') {
+        rightChildren.push(children[i]);
+      } else {
+        // Alterna per bilanciare i rami
+        if (i % 2 === 0) rightChildren.push(children[i]);
+        else leftChildren.push(children[i]);
+      }
+    }
+
+    // Calcola altezze
+    let rightHeight = 0;
+    rightChildren.forEach(c => rightHeight += MindmapEngine.computeSubtreeHeight(c, verticalGap));
+    let leftHeight = 0;
+    leftChildren.forEach(c => leftHeight += MindmapEngine.computeSubtreeHeight(c, verticalGap));
+
+    const maxSideHeight = Math.max(rightHeight, leftHeight, 400);
+
+    // Centro della radice
+    rootNode.x = 900;
+    rootNode.y = Math.max(260, maxSideHeight / 2);
+    rootNode.color = '#38bdf8';
+    rootNode.direction = 'center';
+
+    const renderedNodes = [rootNode];
     const branchPaths = [];
 
-    rootNode.x = 80;
-    rootNode.y = Math.max(200, (rootNode.subtreeHeight - rootNode.height) / 2);
-    rootNode.color = '#38bdf8';
-    renderedNodes.push(rootNode);
+    // 1. Ramo Destro
+    let curY = rootNode.y + (rootNode.height / 2) - (rightHeight / 2);
+    for (let i = 0; i < rightChildren.length; i++) {
+      const child = rightChildren[i];
+      const color = BRANCH_COLORS[i % BRANCH_COLORS.length];
+      child.color = color;
+      child.direction = 'right';
 
-    const positionChildren = (parent, branchColor) => {
-      if (!parent.children || !parent.children.length || parent.collapsed) return;
+      child.x = rootNode.x + rootNode.width + horizontalGap;
+      child.y = curY + (child.subtreeHeight / 2) - (child.height / 2);
+      curY += child.subtreeHeight;
 
-      let startY = parent.y + (parent.height / 2) - (parent.subtreeHeight / 2);
+      renderedNodes.push(child);
 
-      for (let i = 0; i < parent.children.length; i++) {
-        const child = parent.children[i];
-        const color = branchColor || BRANCH_COLORS[i % BRANCH_COLORS.length];
-        child.color = color;
+      const x1 = rootNode.x + rootNode.width;
+      const y1 = rootNode.y + (rootNode.height / 2);
+      const x2 = child.x;
+      const y2 = child.y + (child.height / 2);
+      const dx = (x2 - x1) * 0.55;
 
+      branchPaths.push({
+        d: `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`,
+        color,
+        fromId: rootNode.id,
+        toId: child.id
+      });
+
+      MindmapEngine.positionSubChildren(child, color, 'right', horizontalGap, renderedNodes, branchPaths);
+    }
+
+    // 2. Ramo Sinistro
+    curY = rootNode.y + (rootNode.height / 2) - (leftHeight / 2);
+    for (let i = 0; i < leftChildren.length; i++) {
+      const child = leftChildren[i];
+      const color = BRANCH_COLORS[(i + 4) % BRANCH_COLORS.length];
+      child.color = color;
+      child.direction = 'left';
+
+      child.x = rootNode.x - child.width - horizontalGap;
+      child.y = curY + (child.subtreeHeight / 2) - (child.height / 2);
+      curY += child.subtreeHeight;
+
+      renderedNodes.push(child);
+
+      const x1 = rootNode.x;
+      const y1 = rootNode.y + (rootNode.height / 2);
+      const x2 = child.x + child.width;
+      const y2 = child.y + (child.height / 2);
+      const dx = (x1 - x2) * 0.55;
+
+      branchPaths.push({
+        d: `M ${x1} ${y1} C ${x1 - dx} ${y1}, ${x2 + dx} ${y2}, ${x2} ${y2}`,
+        color,
+        fromId: rootNode.id,
+        toId: child.id
+      });
+
+      MindmapEngine.positionSubChildren(child, color, 'left', horizontalGap, renderedNodes, branchPaths);
+    }
+
+    return { nodes: renderedNodes, paths: branchPaths, root: rootNode };
+  }
+
+  static positionSubChildren(parent, color, direction, horizontalGap, renderedNodes, branchPaths) {
+    if (!parent.children || !parent.children.length || parent.collapsed) return;
+
+    let startY = parent.y + (parent.height / 2) - (parent.subtreeHeight / 2);
+
+    for (let i = 0; i < parent.children.length; i++) {
+      const child = parent.children[i];
+      child.color = color;
+      child.direction = direction;
+
+      if (direction === 'right') {
         child.x = parent.x + parent.width + horizontalGap;
         child.y = startY + (child.subtreeHeight / 2) - (child.height / 2);
         startY += child.subtreeHeight;
 
         renderedNodes.push(child);
 
-        // Genera curva Bezier cubica dal genitore al figlio
         const x1 = parent.x + parent.width;
         const y1 = parent.y + (parent.height / 2);
         const x2 = child.x;
         const y2 = child.y + (child.height / 2);
         const dx = (x2 - x1) * 0.55;
 
-        const pathD = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
         branchPaths.push({
-          d: pathD,
+          d: `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`,
           color,
           fromId: parent.id,
           toId: child.id
         });
+      } else {
+        child.x = parent.x - child.width - horizontalGap;
+        child.y = startY + (child.subtreeHeight / 2) - (child.height / 2);
+        startY += child.subtreeHeight;
 
-        positionChildren(child, color);
+        renderedNodes.push(child);
+
+        const x1 = parent.x;
+        const y1 = parent.y + (parent.height / 2);
+        const x2 = child.x + child.width;
+        const y2 = child.y + (child.height / 2);
+        const dx = (x1 - x2) * 0.55;
+
+        branchPaths.push({
+          d: `M ${x1} ${y1} C ${x1 - dx} ${y1}, ${x2 + dx} ${y2}, ${x2} ${y2}`,
+          color,
+          fromId: parent.id,
+          toId: child.id
+        });
       }
-    };
+
+      MindmapEngine.positionSubChildren(child, color, direction, horizontalGap, renderedNodes, branchPaths);
+    }
+  }
+
+  /**
+   * LAYOUT 2: STRUTTURA A DESTRA (Compatta)
+   */
+  static computeRightLayout(rootNode, options = {}) {
+    const horizontalGap = options.horizontalGap || 70;
+    const verticalGap = options.verticalGap || 16;
+    const detailLevel = options.detailLevel || 'keypoints';
+
+    MindmapEngine.measureNode(rootNode, detailLevel);
+    MindmapEngine.computeSubtreeHeight(rootNode, verticalGap);
+
+    rootNode.x = 80;
+    rootNode.y = Math.max(200, (rootNode.subtreeHeight - rootNode.height) / 2);
+    rootNode.color = '#38bdf8';
+    rootNode.direction = 'right';
+
+    const renderedNodes = [rootNode];
+    const branchPaths = [];
 
     if (rootNode.children && rootNode.children.length && !rootNode.collapsed) {
       let curY = rootNode.y + (rootNode.height / 2) - (rootNode.subtreeHeight / 2);
@@ -307,6 +472,7 @@ class MindmapEngine {
         const child = rootNode.children[i];
         const color = BRANCH_COLORS[i % BRANCH_COLORS.length];
         child.color = color;
+        child.direction = 'right';
 
         child.x = rootNode.x + rootNode.width + horizontalGap;
         child.y = curY + (child.subtreeHeight / 2) - (child.height / 2);
@@ -327,7 +493,7 @@ class MindmapEngine {
           toId: child.id
         });
 
-        positionChildren(child, color);
+        MindmapEngine.positionSubChildren(child, color, 'right', horizontalGap, renderedNodes, branchPaths);
       }
     }
 
@@ -336,24 +502,24 @@ class MindmapEngine {
 }
 
 // ==========================================================================
-// 2. MindmapCanvas: Interfaccia Interattiva SVG, Drag&Drop & Editing
+// 2. MindmapCanvas: Controller con Dock Superiore e Viste Multiple
 // ==========================================================================
 
 class MindmapCanvas {
   constructor(containerEl, options = {}) {
     this.container = containerEl;
     this.options = options;
-    this.rootNode = options.rootNode || { id: 'root', text: 'Mappa Concettuale', children: [], isRoot: true };
+    this.rawRootNode = options.rootNode || { id: 'root', text: 'Mappa Concettuale', children: [], isRoot: true };
     this.selectedNodeId = 'root';
-    this.panX = 40;
-    this.panY = 40;
+    this.viewMode = options.viewMode || 'bilateral'; // 'bilateral' | 'right' | 'table' | 'outline'
+    this.detailLevel = options.detailLevel || 'keypoints'; // 'titles' | 'keypoints' | 'full'
+
+    this.panX = 0;
+    this.panY = 0;
     this.zoom = 1;
     this.isDraggingCanvas = false;
     this.dragStart = { x: 0, y: 0 };
-    this.draggingNode = null;
-    this.editingNode = null;
-    this.history = [];
-    this.historyIndex = -1;
+    this.expandedNodes = new Set();
 
     this.initDOM();
     this.render();
@@ -363,85 +529,155 @@ class MindmapCanvas {
     this.container.empty();
     this.container.addClass('cds-mm-container');
 
-    // 1. Toolbar superiore fluttuante
-    this.toolbar = this.container.createDiv({ cls: 'cds-mm-toolbar' });
-    this.renderToolbar();
+    // 1. DOCK SUPERIORE UNIFICATO (Nessun elemento in basso!)
+    this.topDock = this.container.createDiv({ cls: 'cds-mm-top-dock' });
+    this.renderTopDock();
 
-    // 2. Viewport & Stage
+    // 2. VIEWPORT PER IL CANVAS
     this.viewport = this.container.createDiv({ cls: 'cds-mm-viewport' });
     this.stage = this.viewport.createDiv({ cls: 'cds-mm-stage' });
 
-    // SVG layer per le curve
     this.svgLayer = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     this.svgLayer.setAttribute('class', 'cds-mm-svg');
     this.stage.appendChild(this.svgLayer);
 
-    // HTML layer per i nodi
     this.nodesLayer = this.stage.createDiv({ cls: 'cds-mm-nodes-layer' });
 
-    // 3. Footer con guida tastiera
-    this.footerGuide = this.container.createDiv({ cls: 'cds-mm-footer-guide' });
-    this.footerGuide.innerHTML = `
-      <span><kbd>Tab</kbd> Figlio</span>
-      <span><kbd>Enter</kbd> Fratello</span>
-      <span><kbd>Canc</kbd> Elimina</span>
-      <span><kbd>F2 / Spazio</kbd> Modifica</span>
-      <span><kbd>Ctrl+E</kbd> Centra</span>
-    `;
+    // 3. CONTENITORI PER VISTE TABELLA E OUTLINE
+    this.tableContainer = this.container.createDiv({ cls: 'cds-mm-table-container' });
+    this.tableContainer.style.display = 'none';
 
-    // Eventi Canvas Pan & Zoom
+    this.outlineContainer = this.container.createDiv({ cls: 'cds-mm-outline-container' });
+    this.outlineContainer.style.display = 'none';
+
+    // Eventi Pan & Zoom
     this.viewport.addEventListener('mousedown', (e) => this.onMouseDown(e));
     window.addEventListener('mousemove', (e) => this.onMouseMove(e));
     window.addEventListener('mouseup', (e) => this.onMouseUp(e));
     this.viewport.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
 
-    // Eventi da Tastiera
+    // Scorciatoie Tastiera
     this.container.setAttribute('tabindex', '0');
     this.container.addEventListener('keydown', (e) => this.onKeyDown(e));
   }
 
-  renderToolbar() {
-    this.toolbar.empty();
+  renderTopDock() {
+    this.topDock.empty();
 
-    const mkBtn = (label, icon, title, onClick) => {
-      const b = this.toolbar.createEl('button', { cls: 'cds-mm-btn', attr: { title } });
+    // GRUPPO 1: VISTE MULTIPLE
+    const groupViews = this.topDock.createDiv({ cls: 'cds-mm-dock-group' });
+    groupViews.createSpan({ text: 'Vista:', cls: 'cds-mm-dock-label' });
+
+    const mkViewBtn = (id, label, icon) => {
+      const b = groupViews.createEl('button', {
+        cls: 'cds-mm-dock-btn' + (this.viewMode === id ? ' is-active' : ''),
+        attr: { title: `Passa a vista ${label}` }
+      });
       b.innerHTML = `${icon} <span>${label}</span>`;
+      b.onclick = () => {
+        this.viewMode = id;
+        this.renderTopDock();
+        this.render();
+      };
+      return b;
+    };
+
+    mkViewBtn('bilateral', 'Bilaterale', '🧠');
+    mkViewBtn('right', 'A Destra', '🌿');
+    mkViewBtn('table', 'Tabella', '📊');
+    mkViewBtn('outline', 'Outline', '📑');
+
+    // GRUPPO 2: LIVELLO DI DETTAGLIO
+    const groupDetail = this.topDock.createDiv({ cls: 'cds-mm-dock-group' });
+    groupDetail.createSpan({ text: 'Dettaglio:', cls: 'cds-mm-dock-label' });
+
+    const mkDetailBtn = (lvl, label, icon, tip) => {
+      const b = groupDetail.createEl('button', {
+        cls: 'cds-mm-dock-btn' + (this.detailLevel === lvl ? ' is-active' : ''),
+        attr: { title: tip }
+      });
+      b.innerHTML = `${icon} <span>${label}</span>`;
+      b.onclick = () => {
+        this.detailLevel = lvl;
+        this.renderTopDock();
+        this.render();
+      };
+      return b;
+    };
+
+    mkDetailBtn('titles', 'Solo Titoli', '🏷️', 'Mostra solo la gerarchia H1/H2/H3');
+    mkDetailBtn('keypoints', 'Punti Chiave', '🎯', 'Mostra titoli e concetti principali');
+    mkDetailBtn('full', 'Tutto', '📖', 'Mostra anche il testo completo dei paragrafi');
+
+    // GRUPPO 3: STRUMENTI OPERATIVI
+    const groupTools = this.topDock.createDiv({ cls: 'cds-mm-dock-group' });
+
+    const mkToolBtn = (icon, tip, onClick) => {
+      const b = groupTools.createEl('button', { cls: 'cds-mm-dock-btn', attr: { title: tip } });
+      b.innerHTML = icon;
       b.onclick = onClick;
       return b;
     };
 
-    mkBtn('', '➕', 'Aggiungi Nodo Figlio (Tab)', () => this.addChildToSelected());
-    mkBtn('', '⏬', 'Aggiungi Fratello (Enter)', () => this.addSiblingToSelected());
-    mkBtn('', '🗑️', 'Elimina Nodo (Canc)', () => this.deleteSelected());
+    mkToolBtn('➕ Figlio', 'Aggiungi Nodo Figlio (Tab)', () => this.addChildToSelected());
+    mkToolBtn('⏬ Fratello', 'Aggiungi Nodo Fratello (Enter)', () => this.addSiblingToSelected());
+    mkToolBtn('🗑️', 'Elimina Nodo (Canc)', () => this.deleteSelected());
 
-    this.toolbar.createDiv({ cls: 'cds-mm-divider' });
+    groupTools.createDiv({ cls: 'cds-mm-divider' });
 
-    mkBtn('', '🔍+', 'Zoom In', () => this.setZoom(this.zoom * 1.15));
-    mkBtn('', '🔍-', 'Zoom Out', () => this.setZoom(this.zoom / 1.15));
-    mkBtn('100%', '🎯', 'Ripristina Zoom (100%)', () => { this.zoom = 1; this.updateTransform(); });
-    mkBtn('', '🧭', 'Centra Radice (Ctrl+E)', () => this.centerRoot());
+    mkToolBtn('🔍+', 'Zoom In', () => this.setZoom(this.zoom * 1.15));
+    mkToolBtn('🔍−', 'Zoom Out', () => this.setZoom(this.zoom / 1.15));
+    mkToolBtn('100%', 'Reset Zoom', () => { this.zoom = 1; this.updateTransform(); });
+    mkToolBtn('🧭 Centra', 'Centra Mappa (Ctrl+E)', () => this.centerRoot());
 
-    this.toolbar.createDiv({ cls: 'cds-mm-divider' });
+    groupTools.createDiv({ cls: 'cds-mm-divider' });
 
-    mkBtn('', '🖼️ SVG', 'Esporta Immagine SVG', () => this.exportSVG());
-    mkBtn('', '📷 PNG', 'Esporta Immagine PNG', () => this.exportPNG());
-
-    if (this.options.onSaveMarkdown) {
-      mkBtn('Salva', '💾', 'Salva Modifiche nella Nota', () => this.triggerSave());
-    }
+    mkToolBtn('🖼️ SVG', 'Esporta Immagine SVG', () => this.exportSVG());
+    mkToolBtn('📷 PNG', 'Esporta Immagine PNG', () => this.exportPNG());
   }
 
   render() {
-    const layout = MindmapEngine.computeLayout(this.rootNode);
+    // 1. Modalità Tabella
+    if (this.viewMode === 'table') {
+      this.viewport.style.display = 'none';
+      this.outlineContainer.style.display = 'none';
+      this.tableContainer.style.display = 'block';
+      this.renderTableView();
+      return;
+    }
+
+    // 2. Modalità Outline
+    if (this.viewMode === 'outline') {
+      this.viewport.style.display = 'none';
+      this.tableContainer.style.display = 'none';
+      this.outlineContainer.style.display = 'block';
+      this.renderOutlineView();
+      return;
+    }
+
+    // 3. Modalità Canvas (Bilaterale o A Destra)
+    this.tableContainer.style.display = 'none';
+    this.outlineContainer.style.display = 'none';
+    this.viewport.style.display = 'block';
+
+    const activeTree = MindmapEngine.filterTreeByDetail(this.rawRootNode, this.detailLevel);
+
+    let layout;
+    if (this.viewMode === 'bilateral') {
+      layout = MindmapEngine.computeBilateralLayout(activeTree, { detailLevel: this.detailLevel });
+    } else {
+      layout = MindmapEngine.computeRightLayout(activeTree, { detailLevel: this.detailLevel });
+    }
+
     this.renderedNodes = layout.nodes;
     this.renderedPaths = layout.paths;
 
-    // 1. Aggiorna Layer SVG
+    // Svuota e disegna percorsi SVG
     while (this.svgLayer.firstChild) {
       this.svgLayer.removeChild(this.svgLayer.firstChild);
     }
 
-    let minX = 0, minY = 0, maxX = 1200, maxY = 800;
+    let minX = 0, minY = 0, maxX = 1800, maxY = 1200;
 
     for (const p of this.renderedPaths) {
       const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -451,7 +687,7 @@ class MindmapCanvas {
       this.svgLayer.appendChild(pathEl);
     }
 
-    // 2. Aggiorna Layer Nodi HTML
+    // Disegna Nodi HTML
     this.nodesLayer.empty();
 
     for (const node of this.renderedNodes) {
@@ -461,7 +697,8 @@ class MindmapCanvas {
       const nodeEl = this.nodesLayer.createDiv({
         cls: 'cds-mm-node' +
           (node.isRoot ? ' is-root' : ` level-${node.depth}`) +
-          (node.id === this.selectedNodeId ? ' is-selected' : '')
+          (node.id === this.selectedNodeId ? ' is-selected' : '') +
+          (node.direction === 'left' ? ' is-left' : ' is-right')
       });
 
       nodeEl.style.left = `${node.x}px`;
@@ -469,9 +706,25 @@ class MindmapCanvas {
       nodeEl.style.width = `${node.width}px`;
       nodeEl.style.borderColor = node.isRoot ? 'rgba(255,255,255,0.4)' : node.color || '#38bdf8';
 
-      // Contenuto testuale
-      const textEl = nodeEl.createDiv({ cls: 'cds-mm-text' });
-      textEl.textContent = node.text;
+      // Titolo/Testo principale
+      const titleEl = nodeEl.createDiv({ cls: 'cds-mm-node-title' });
+      titleEl.textContent = node.text;
+
+      // Se livello completo o c'è testo corpo
+      if (node.bodyText) {
+        if (this.detailLevel === 'full' || this.expandedNodes.has(node.id)) {
+          const bodyEl = nodeEl.createDiv({ cls: 'cds-mm-node-body' });
+          bodyEl.textContent = node.bodyText;
+        } else if (this.detailLevel === 'keypoints') {
+          const toggle = nodeEl.createDiv({ cls: 'cds-mm-expand-toggle' });
+          toggle.textContent = '… Dettagli';
+          toggle.onclick = (ev) => {
+            ev.stopPropagation();
+            this.expandedNodes.add(node.id);
+            this.render();
+          };
+        }
+      }
 
       // Badge Link PDF se presente
       if (node.pdfLink) {
@@ -485,7 +738,7 @@ class MindmapCanvas {
         };
       }
 
-      // Pulsante Espandi / Riduci se ha figli
+      // Pulsante Espandi/Riduci se ha figli
       if (node.children && node.children.length) {
         const foldBtn = nodeEl.createDiv({
           cls: 'cds-mm-fold-btn' + (node.collapsed ? ' is-collapsed' : '')
@@ -493,6 +746,9 @@ class MindmapCanvas {
         foldBtn.textContent = node.collapsed ? `+${node.children.length}` : '−';
         foldBtn.onclick = (ev) => {
           ev.stopPropagation();
+          // Trova il nodo corrispondente nell'albero originale
+          const raw = this.findRawNode(node.id);
+          if (raw) raw.collapsed = !raw.collapsed;
           node.collapsed = !node.collapsed;
           this.render();
           this.triggerSave();
@@ -508,7 +764,7 @@ class MindmapCanvas {
         this.addChildToSelected();
       };
 
-      // Click e doppio click
+      // Click e Drag & Drop
       nodeEl.onmousedown = (ev) => {
         ev.stopPropagation();
         this.selectNode(node.id);
@@ -523,12 +779,123 @@ class MindmapCanvas {
       };
     }
 
-    this.svgLayer.setAttribute('width', `${maxX + 300}`);
-    this.svgLayer.setAttribute('height', `${maxY + 300}`);
-    this.stage.style.width = `${maxX + 300}px`;
-    this.stage.style.height = `${maxY + 300}px`;
+    this.svgLayer.setAttribute('width', `${maxX + 400}`);
+    this.svgLayer.setAttribute('height', `${maxY + 400}`);
+    this.stage.style.width = `${maxX + 400}px`;
+    this.stage.style.height = `${maxY + 400}px`;
 
     this.updateTransform();
+  }
+
+  /**
+   * VISTA TABELLA / MATRICE CONCETTUALE
+   */
+  renderTableView() {
+    this.tableContainer.empty();
+    const table = this.tableContainer.createEl('table', { cls: 'cds-mm-table' });
+    const thead = table.createEl('thead');
+    const headerRow = thead.createEl('tr');
+    ['Macro-Capitolo (H1/H2)', 'Sezione / Argomento (H3)', 'Punti Chiave & Elenco', 'Citazioni PDF & Note'].forEach(h => {
+      headerRow.createEl('th', { text: h });
+    });
+
+    const tbody = table.createEl('tbody');
+    const chapters = this.rawRootNode.children || [];
+
+    if (!chapters.length) {
+      const row = tbody.createEl('tr');
+      row.createEl('td', { text: 'Nessun capitolo presente. Aggiungi sezioni per popolare la tabella.', attr: { colspan: 4, style: 'text-align:center;color:#94a3b8;padding:24px;' } });
+      return;
+    }
+
+    for (const chap of chapters) {
+      const sections = chap.children && chap.children.length ? chap.children : [{ text: '—', children: [] }];
+
+      for (let sIdx = 0; sIdx < sections.length; sIdx++) {
+        const sec = sections[sIdx];
+        const keypoints = sec.children && sec.children.length ? sec.children : [{ text: '—' }];
+
+        for (let kIdx = 0; kIdx < keypoints.length; kIdx++) {
+          const kp = keypoints[kIdx];
+          const tr = tbody.createEl('tr');
+
+          // Cella Capitolo
+          if (sIdx === 0 && kIdx === 0) {
+            const tdChap = tr.createEl('td', { attr: { rowspan: sections.reduce((acc, s) => acc + (s.children && s.children.length ? s.children.length : 1), 0) } });
+            tdChap.style.fontWeight = '700';
+            tdChap.style.color = '#38bdf8';
+            const cell = tdChap.createDiv({ cls: 'cds-mm-table-cell', text: chap.text });
+            cell.contentEditable = 'true';
+            cell.onblur = () => { chap.text = cell.textContent.trim(); this.triggerSave(); };
+          }
+
+          // Cella Sezione
+          if (kIdx === 0) {
+            const tdSec = tr.createEl('td', { attr: { rowspan: kp ? (sec.children && sec.children.length ? sec.children.length : 1) : 1 } });
+            tdSec.style.fontWeight = '600';
+            const cell = tdSec.createDiv({ cls: 'cds-mm-table-cell', text: sec.text });
+            cell.contentEditable = 'true';
+            cell.onblur = () => { sec.text = cell.textContent.trim(); this.triggerSave(); };
+          }
+
+          // Cella Punto Chiave
+          const tdKp = tr.createEl('td');
+          const cellKp = tdKp.createDiv({ cls: 'cds-mm-table-cell', text: kp.text });
+          cellKp.contentEditable = 'true';
+          cellKp.onblur = () => { kp.text = cellKp.textContent.trim(); this.triggerSave(); };
+
+          // Cella Note & Link PDF
+          const tdNote = tr.createEl('td');
+          if (kp.pdfLink) {
+            const b = tdNote.createDiv({ cls: 'cds-mm-pdf-badge' });
+            b.innerHTML = `📄 ${kp.pdfLink.file} (Pag. ${kp.pdfLink.page})`;
+            b.onclick = () => { if (this.options.onPdfJump) this.options.onPdfJump(kp.pdfLink); };
+          }
+          if (kp.bodyText) {
+            tdNote.createEl('div', { text: kp.bodyText, attr: { style: 'font-size:.78rem;color:#94a3b8;margin-top:4px;' } });
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * VISTA OUTLINE GERARCHICA
+   */
+  renderOutlineView() {
+    this.outlineContainer.empty();
+    const title = this.outlineContainer.createEl('h2', { text: this.rawRootNode.text || 'Outline', attr: { style: 'color:#38bdf8;margin-bottom:18px;' } });
+
+    const walk = (node, container, level) => {
+      if (!node.children || !node.children.length) return;
+
+      for (const child of node.children) {
+        const item = container.createDiv({ cls: 'cds-mm-outline-item' });
+        item.style.paddingLeft = `${level * 22}px`;
+
+        const bullet = item.createDiv({ cls: 'cds-mm-outline-bullet' });
+        bullet.style.background = BRANCH_COLORS[level % BRANCH_COLORS.length];
+
+        const textSpan = item.createDiv({ cls: 'cds-mm-outline-text', text: child.text });
+        textSpan.contentEditable = 'true';
+        textSpan.onblur = () => {
+          child.text = textSpan.textContent.trim();
+          this.triggerSave();
+        };
+
+        if (child.pdfLink) {
+          const b = item.createDiv({ cls: 'cds-mm-pdf-badge' });
+          b.innerHTML = `📄 Pag. ${child.pdfLink.page}`;
+          b.onclick = () => { if (this.options.onPdfJump) this.options.onPdfJump(child.pdfLink); };
+        }
+
+        if (child.children && child.children.length) {
+          walk(child, container, level + 1);
+        }
+      }
+    };
+
+    walk(this.rawRootNode, this.outlineContainer, 0);
   }
 
   updateTransform() {
@@ -541,10 +908,16 @@ class MindmapCanvas {
   }
 
   centerRoot() {
-    const vW = this.viewport.clientWidth;
-    const vH = this.viewport.clientHeight;
-    this.panX = Math.max(60, vW * 0.12);
-    this.panY = Math.max(60, (vH / 2) - (this.rootNode.height / 2) - 100);
+    const vW = this.viewport.clientWidth || 1000;
+    const vH = this.viewport.clientHeight || 700;
+
+    if (this.viewMode === 'bilateral') {
+      this.panX = (vW / 2) - 900 - (this.rawRootNode.width / 2);
+      this.panY = (vH / 2) - 260 - (this.rawRootNode.height / 2);
+    } else {
+      this.panX = Math.max(60, vW * 0.1);
+      this.panY = Math.max(60, (vH / 2) - 150);
+    }
     this.zoom = 1;
     this.updateTransform();
   }
@@ -554,18 +927,18 @@ class MindmapCanvas {
     this.render();
   }
 
-  findNode(nodeId, node = this.rootNode) {
+  findRawNode(nodeId, node = this.rawRootNode) {
     if (node.id === nodeId) return node;
     if (node.children) {
       for (const child of node.children) {
-        const res = this.findNode(nodeId, child);
+        const res = this.findRawNode(nodeId, child);
         if (res) return res;
       }
     }
     return null;
   }
 
-  findParent(nodeId, current = this.rootNode) {
+  findParent(nodeId, current = this.rawRootNode) {
     if (!current.children) return null;
     for (const child of current.children) {
       if (child.id === nodeId) return current;
@@ -576,22 +949,23 @@ class MindmapCanvas {
   }
 
   addChildToSelected(defaultText = 'Nuovo Concetto', pdfLink = null) {
-    const parent = this.findNode(this.selectedNodeId) || this.rootNode;
+    const parent = this.findRawNode(this.selectedNodeId) || this.rawRootNode;
     parent.collapsed = false;
     const newNode = {
       id: MindmapEngine.genId(),
       text: defaultText,
       depth: (parent.depth || 0) + 1,
+      type: parent.depth === 0 ? 'heading' : 'keypoint',
       children: [],
       collapsed: false,
-      pdfLink
+      pdfLink,
+      bodyText: ''
     };
     parent.children.push(newNode);
     this.selectedNodeId = newNode.id;
     this.render();
     this.triggerSave();
 
-    // Entra subito in modalità modifica se appena creato
     setTimeout(() => {
       const nodeEl = this.nodesLayer.querySelector('.cds-mm-node.is-selected');
       if (nodeEl) this.startEditing(newNode, nodeEl);
@@ -611,8 +985,10 @@ class MindmapCanvas {
       id: MindmapEngine.genId(),
       text: defaultText,
       depth: parent.depth + 1,
+      type: parent.depth === 0 ? 'heading' : 'keypoint',
       children: [],
-      collapsed: false
+      collapsed: false,
+      bodyText: ''
     };
 
     parent.children.splice(idx + 1, 0, newNode);
@@ -664,6 +1040,8 @@ class MindmapCanvas {
       const val = input.value.trim();
       if (val) {
         node.text = val;
+        const raw = this.findRawNode(node.id);
+        if (raw) raw.text = val;
       }
       this.nodesLayer.removeChild(input);
       this.editingInput = null;
@@ -698,7 +1076,7 @@ class MindmapCanvas {
       this.deleteSelected();
     } else if (e.key === 'F2' || e.key === ' ') {
       e.preventDefault();
-      const node = this.findNode(this.selectedNodeId);
+      const node = this.findRawNode(this.selectedNodeId);
       const nodeEl = this.nodesLayer.querySelector('.cds-mm-node.is-selected');
       if (node && nodeEl) this.startEditing(node, nodeEl);
     } else if (e.key === 'e' && (e.ctrlKey || e.metaKey)) {
@@ -708,7 +1086,7 @@ class MindmapCanvas {
   }
 
   onMouseDown(e) {
-    if (e.target.closest('.cds-mm-node') || e.target.closest('.cds-mm-toolbar')) return;
+    if (e.target.closest('.cds-mm-node') || e.target.closest('.cds-mm-top-dock')) return;
     this.isDraggingCanvas = true;
     this.viewport.addClass('is-dragging');
     this.dragStart = { x: e.clientX - this.panX, y: e.clientY - this.panY };
@@ -741,13 +1119,16 @@ class MindmapCanvas {
     }
   }
 
+  /**
+   * SPOSTAMENTO LIBERO DEI CAPITOLI E DEI NODI (Drag & Drop)
+   */
   startNodeDrag(node, ev) {
-    // Implementazione del drag & drop per riordinare o cambiare genitore
     const ghost = ev.target.closest('.cds-mm-node');
     if (!ghost) return;
 
     ghost.addClass('is-ghost');
-    let targetParent = null;
+    let targetNode = null;
+    const startX = ev.clientX;
 
     const onMove = (me) => {
       const els = document.elementsFromPoint(me.clientX, me.clientY);
@@ -755,27 +1136,51 @@ class MindmapCanvas {
       if (hoverNodeEl) {
         document.querySelectorAll('.cds-mm-node.is-drop-target').forEach(el => el.classList.remove('is-drop-target'));
         hoverNodeEl.classList.add('is-drop-target');
-        targetParent = this.renderedNodes.find(n => hoverNodeEl.textContent.includes(n.text));
+        targetNode = this.renderedNodes.find(n => hoverNodeEl.textContent.includes(n.text));
       }
     };
 
-    const onUp = () => {
+    const onUp = (ue) => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       ghost.removeClass('is-ghost');
       document.querySelectorAll('.cds-mm-node.is-drop-target').forEach(el => el.classList.remove('is-drop-target'));
 
-      if (targetParent && targetParent.id !== node.id) {
-        const oldParent = this.findParent(node.id);
-        if (oldParent && oldParent.id !== targetParent.id) {
-          // Rimuovi dal vecchio genitore e aggancia al nuovo
-          oldParent.children = oldParent.children.filter(c => c.id !== node.id);
-          node.depth = targetParent.depth + 1;
-          targetParent.children.push(node);
-          targetParent.collapsed = false;
+      const rawNode = this.findRawNode(node.id);
+      if (!rawNode) return;
+
+      // 1. Se stiamo trascinando un capitolo principale in vista bilaterale:
+      // controlla se è stato trascinato a sinistra o destra della radice per invertire il lato
+      if (node.depth === 1 && this.viewMode === 'bilateral') {
+        const deltaX = ue.clientX - startX;
+        if (deltaX < -150 && rawNode.manualSide !== 'left') {
+          rawNode.manualSide = 'left';
+          new Notice(`Spostato capitolo "${rawNode.text.slice(0, 20)}" a SINISTRA`);
           this.render();
           this.triggerSave();
-          new Notice(`Spostato "${node.text.slice(0, 20)}" sotto "${targetParent.text.slice(0, 20)}"`);
+          return;
+        } else if (deltaX > 150 && rawNode.manualSide !== 'right') {
+          rawNode.manualSide = 'right';
+          new Notice(`Spostato capitolo "${rawNode.text.slice(0, 20)}" a DESTRA`);
+          this.render();
+          this.triggerSave();
+          return;
+        }
+      }
+
+      // 2. Se trascinato sopra un altro nodo: reparenting o riordino
+      if (targetNode && targetNode.id !== node.id) {
+        const oldParent = this.findParent(node.id);
+        const newParent = this.findRawNode(targetNode.id);
+
+        if (oldParent && newParent && oldParent.id !== newParent.id) {
+          oldParent.children = oldParent.children.filter(c => c.id !== node.id);
+          rawNode.depth = newParent.depth + 1;
+          newParent.children.push(rawNode);
+          newParent.collapsed = false;
+          this.render();
+          this.triggerSave();
+          newNotice(`Spostato "${rawNode.text.slice(0, 20)}" sotto "${newParent.text.slice(0, 20)}"`);
         }
       }
     };
@@ -786,21 +1191,21 @@ class MindmapCanvas {
 
   triggerSave() {
     if (this.options.onSaveMarkdown) {
-      const md = MindmapEngine.serializeToMarkdown(this.rootNode, this.options.frontmatter);
+      const md = MindmapEngine.serializeToMarkdown(this.rawRootNode, this.options.frontmatter);
       this.options.onSaveMarkdown(md);
     }
   }
 
   exportSVG() {
     const clone = this.svgLayer.cloneNode(true);
-    clone.style.background = '#0f121d';
+    clone.style.background = '#0d1117';
     const serializer = new XMLSerializer();
     const svgStr = serializer.serializeToString(clone);
     const blob = new Blob([svgStr], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${this.rootNode.text || 'mindmap'}.svg`;
+    a.download = `${this.rawRootNode.text || 'mindmap'}.svg`;
     a.click();
     URL.revokeObjectURL(url);
     new Notice('✅ Mappa esportata come SVG!');
@@ -808,7 +1213,7 @@ class MindmapCanvas {
 
   exportPNG() {
     const clone = this.svgLayer.cloneNode(true);
-    clone.style.background = '#0f121d';
+    clone.style.background = '#0d1117';
     const svgStr = new XMLSerializer().serializeToString(clone);
     const img = new Image();
     const svgBlob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
@@ -816,10 +1221,10 @@ class MindmapCanvas {
 
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      canvas.width = parseInt(this.svgLayer.getAttribute('width') || '1200', 10);
-      canvas.height = parseInt(this.svgLayer.getAttribute('height') || '800', 10);
+      canvas.width = parseInt(this.svgLayer.getAttribute('width') || '1600', 10);
+      canvas.height = parseInt(this.svgLayer.getAttribute('height') || '1000', 10);
       const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#0f121d';
+      ctx.fillStyle = '#0d1117';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0);
 
@@ -827,7 +1232,7 @@ class MindmapCanvas {
         const pngUrl = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = pngUrl;
-        a.download = `${this.rootNode.text || 'mindmap'}.png`;
+        a.download = `${this.rawRootNode.text || 'mindmap'}.png`;
         a.click();
         URL.revokeObjectURL(pngUrl);
         new Notice('✅ Mappa esportata come PNG!');
@@ -839,7 +1244,7 @@ class MindmapCanvas {
 }
 
 // ==========================================================================
-// 3. CdsMindmapView: Obsidian Leaf View per Note Intere
+// 3. CdsMindmapView: Vista Obsidian con Live Real-Time Two-Way Sync
 // ==========================================================================
 
 class CdsMindmapView extends ItemView {
@@ -848,6 +1253,8 @@ class CdsMindmapView extends ItemView {
     this.plugin = plugin;
     this.file = null;
     this.canvas = null;
+    this._isInternalSaving = false;
+    this._syncTimer = null;
   }
 
   getViewType() {
@@ -880,7 +1287,12 @@ class CdsMindmapView extends ItemView {
       frontmatter,
       onSaveMarkdown: async (newMd) => {
         if (this.file) {
-          await this.app.vault.modify(this.file, newMd);
+          this._isInternalSaving = true;
+          clearTimeout(this._syncTimer);
+          this._syncTimer = setTimeout(async () => {
+            await this.app.vault.modify(this.file, newMd);
+            setTimeout(() => { this._isInternalSaving = false; }, 250);
+          }, 150);
         }
       },
       onPdfJump: (pdfLink) => {
@@ -891,8 +1303,18 @@ class CdsMindmapView extends ItemView {
     this.canvas.centerRoot();
   }
 
+  /**
+   * Ricaricamento live in tempo reale da Markdown (mentre si scrive nella nota)
+   */
+  async reloadFromMarkdown() {
+    if (!this.file || !this.canvas || this._isInternalSaving) return;
+    const content = await this.app.vault.read(this.file);
+    const newRoot = MindmapEngine.parseMarkdown(content, this.file.basename);
+    this.canvas.rawRootNode = newRoot;
+    this.canvas.render();
+  }
+
   async onOpen() {
-    // Se c'è un file attivo apri quello
     const activeFile = this.app.workspace.getActiveFile();
     if (activeFile && activeFile.extension === 'md') {
       await this.setFile(activeFile);
@@ -901,22 +1323,36 @@ class CdsMindmapView extends ItemView {
 }
 
 // ==========================================================================
-// 4. CdsMindmapPlugin: Lifecycle, Comandi, Ribbon & Codeblock
+// 4. CdsMindmapPlugin: Lifecycle & Event Listeners Real-Time
 // ==========================================================================
 
 module.exports = class CdsMindmapPlugin extends Plugin {
   async onload() {
-    console.log('Loading CDS Mindmap & Mappe Concettuali plugin');
+    console.log('Loading CDS Mindmap Suite v2');
 
     // 1. Registra Vista Nativa
     this.registerView(VIEW_TYPE_MINDMAP, (leaf) => new CdsMindmapView(leaf, this));
 
-    // 2. Ribbon Icon
+    // 2. Sincronizzazione in tempo reale mentre si scrive nelle note
+    this.registerEvent(
+      this.app.vault.on('modify', (file) => {
+        if (!(file instanceof TFile) || file.extension !== 'md') return;
+        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_MINDMAP);
+        for (const leaf of leaves) {
+          const v = leaf.view;
+          if (v && v.file && v.file.path === file.path && !v._isInternalSaving) {
+            v.reloadFromMarkdown();
+          }
+        }
+      })
+    );
+
+    // 3. Ribbon Icon
     this.addRibbonIcon('git-fork', 'CDS Mindmap: Apri come Mappa Concettuale', () => {
       this.openActiveNoteAsMindmap();
     });
 
-    // 3. Comandi
+    // 4. Comandi
     this.addCommand({
       id: 'open-active-note-as-mindmap',
       name: 'Apri nota attiva come Mappa Concettuale (Mindmap)',
@@ -945,7 +1381,7 @@ module.exports = class CdsMindmapPlugin extends Plugin {
       }
     });
 
-    // 4. Codeblock Processor: ```mindmap ... ``` e ```markmind ... ```
+    // 5. Codeblock Processors: ```mindmap e ```markmind
     const codeblockHandler = (source, el, ctx) => {
       el.empty();
       const wrap = el.createDiv({ cls: 'cds-mm-codeblock' });
@@ -954,7 +1390,6 @@ module.exports = class CdsMindmapPlugin extends Plugin {
       new MindmapCanvas(wrap, {
         rootNode,
         onSaveMarkdown: async (newMd) => {
-          // Se siamo all'interno di una nota, aggiorna il codeblock
           const file = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
           if (file instanceof TFile) {
             const raw = await this.app.vault.read(file);
@@ -974,7 +1409,7 @@ module.exports = class CdsMindmapPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor('mindmap', codeblockHandler);
     this.registerMarkdownCodeBlockProcessor('markmind', codeblockHandler);
 
-    // 5. Pulsante nella barra superiore delle note Markdown per passare a Mappa
+    // 6. Menu File
     this.registerEvent(
       this.app.workspace.on('file-menu', (menu, file) => {
         if (file instanceof TFile && file.extension === 'md') {
@@ -1012,13 +1447,9 @@ module.exports = class CdsMindmapPlugin extends Plugin {
     }
   }
 
-  /**
-   * Salto bidirezionale verso la coordinata/pagina esatta del PDF in cds-docs o Obsidian
-   */
   async jumpToPdfAnnotation(pdfLink) {
     if (!pdfLink || !pdfLink.file) return;
 
-    // Cerca il file PDF nel vault
     const file = this.app.metadataCache.getFirstLinkpathDest(pdfLink.file, '');
     if (!file) {
       new Notice(`Documento PDF non trovato nel vault: ${pdfLink.file}`);
@@ -1027,18 +1458,15 @@ module.exports = class CdsMindmapPlugin extends Plugin {
 
     new Notice(`Salto a ${file.name} (Pag. ${pdfLink.page})...`);
 
-    // Prova ad aprire con la vista CDS Docs
     const docsPlugin = this.app.plugins.getPlugin('cds-docs');
     if (docsPlugin && docsPlugin.openPdfFile) {
       docsPlugin.openPdfFile(file, pdfLink.page, pdfLink.rect);
       return;
     }
 
-    // Fallback visualizzatore nativo Obsidian
     const leaf = this.app.workspace.getLeaf(true);
     await leaf.openFile(file);
 
-    // Naviga alla pagina se supportato dallo stato
     const state = leaf.getViewState();
     if (state && state.state) {
       state.state.page = pdfLink.page;
@@ -1047,6 +1475,6 @@ module.exports = class CdsMindmapPlugin extends Plugin {
   }
 
   onunload() {
-    console.log('Unloading CDS Mindmap');
+    console.log('Unloading CDS Mindmap Suite v2');
   }
 };
