@@ -596,12 +596,12 @@ class MindmapEngine {
     const rawLines = cleanText.split('\n');
     const maxLineLen = rawLines.reduce((max, l) => Math.max(max, l.length), 0);
 
-    // Dimensionamento orizzontale generoso
-    let w = Math.max(160, Math.min(420, maxLineLen * 9.5 + 54));
+    // Dimensionamento orizzontale compatto ed ergonomico
+    let w = Math.max(170, Math.min(360, maxLineLen * 9.2 + 48));
 
-    // Stima accurata di word-wrapping nel DOM con font a 13-14px
-    const printableWidth = Math.max(120, w - 50);
-    const charsPerLine = Math.max(16, Math.floor(printableWidth / 8.2));
+    // Stima accurata di word-wrapping del titolo nel DOM con font a 13-14px
+    const printableWidth = Math.max(130, w - 40);
+    const charsPerLine = Math.max(16, Math.floor(printableWidth / 7.8));
 
     let wrappedLineCount = 0;
     for (const rl of rawLines) {
@@ -614,46 +614,68 @@ class MindmapEngine {
     }
     wrappedLineCount = Math.max(1, wrappedLineCount);
 
-    // Altezza base con padding e line-height (24px a riga + 32px padding/border)
-    let h = Math.max(54, wrappedLineCount * 24 + 32);
+    // Altezza base con padding e line-height (22px a riga + 28px padding/border) + 26px barra azioni nodo
+    let h = wrappedLineCount * 22 + 28 + 26;
 
     if (node.images && node.images.length) {
-      w = Math.max(w, 260);
-      h += 120;
+      w = Math.max(w, 280);
+      h += 130;
     }
 
     if (node.layout === 'table') {
-      w = Math.max(w, 440);
+      w = Math.max(w, 460);
       const rowCount = (node.tableData && node.tableData.rows) ? node.tableData.rows.length : (node.children ? node.children.length : 1);
       h = Math.max(h, 110 + rowCount * 36);
     } else {
-      if (detailLevel === 'full' && node.bodyText) {
-        w = Math.max(w, 280);
-        const bodyLines = node.bodyText.split('\n').length;
-        h += Math.max(40, Math.min(180, bodyLines * 22 + 28));
+      const hasFullText = (detailLevel === 'full' || node.isExpanded) && node.bodyText && node.bodyText.trim();
+      if (hasFullText) {
+        // Dimensionamento compatto e proporzionato: larghezza ideale per lettura (300-380px)
+        const bodyLen = node.bodyText.length;
+        w = Math.max(w, Math.min(380, Math.max(280, Math.round(Math.sqrt(bodyLen * 190)))));
+
+        const bodyPrintableW = Math.max(140, w - 32);
+        const bodyCharsPerLine = Math.max(18, Math.floor(bodyPrintableW / 6.6));
+
+        let bodyWrappedLines = 0;
+        const bodyParagraphs = node.bodyText.split('\n');
+        for (const bp of bodyParagraphs) {
+          const trimmed = bp.trim();
+          if (!trimmed) {
+            bodyWrappedLines += 0.5;
+          } else {
+            bodyWrappedLines += Math.max(1, Math.ceil(trimmed.length / bodyCharsPerLine));
+          }
+        }
+        // Line-height a 19px per il testo del corpo + 18px di separatore e padding
+        const bodyHeight = Math.round(bodyWrappedLines * 19 + 18);
+        h += bodyHeight;
       }
+
       if (node.pdfLink) {
-        h += 28;
-        w = Math.max(w, 200);
+        h += 26;
+        w = Math.max(w, 210);
       }
     }
 
-    // Titolo Centrale
+    // Titolo Centrale Root
     if (node.isRoot) {
-      w = Math.max(280, Math.min(540, maxLineLen * 12 + 90));
-      const rootCharsPerLine = Math.max(20, Math.floor((w - 60) / 10.5));
+      w = Math.max(260, Math.min(520, maxLineLen * 11 + 80));
+      const rootCharsPerLine = Math.max(20, Math.floor((w - 50) / 10));
       const rootWrapped = Math.max(1, Math.ceil(cleanText.length / rootCharsPerLine));
-      h = Math.max(76, rootWrapped * 32 + 40);
+      h = Math.max(68, rootWrapped * 30 + 36);
     }
 
     node.width = node.customWidth ? Math.max(80, node.customWidth) : w;
-    node.height = node.customHeight ? Math.max(36, node.customHeight) : h;
+    // Se c'è testo completo, l'altezza calcolata deve vincere su eventuali vecchi customHeight troppo piccoli
+    node.height = node.customHeight ? Math.max(node.customHeight, h) : h;
 
-    if (node.children && node.children.length && node.layout !== 'table') {
+    if (node.children && node.children.length && node.layout !== 'table' && !node.collapsed) {
       for (const child of node.children) {
         MindmapEngine.measureNode(child, detailLevel);
       }
     }
+
+    return { width: node.width, height: node.height };
   }
 
   static computeSubtreeHeight(node, verticalGap = 42) {
@@ -794,12 +816,8 @@ class MindmapEngine {
     let totalLeftH = 0;
     leftChildren.forEach(c => totalLeftH += (c.subtreeHeight + chapterGap));
 
-    const maxSideH = Math.max(totalRightH, totalLeftH, 800);
-    const cx = options.cx || 2400;
-    const cy = options.cy || Math.max(600, maxSideH / 2);
-
-    rootNode.x = cx - (rootNode.width / 2);
-    rootNode.y = cy - (rootNode.height / 2);
+    rootNode.x = 2200;
+    rootNode.y = Math.max(1400, Math.max(totalRightH, totalLeftH) / 2);
     rootNode.color = '#38bdf8';
     rootNode.direction = 'center';
 
@@ -812,7 +830,8 @@ class MindmapEngine {
       let y = startY;
       const isRight = dir === 'right';
 
-      for (const child of parent.children) {
+      for (let i = 0; i < parent.children.length; i++) {
+        const child = parent.children[i];
         child.color = color;
         child.direction = dir;
 
@@ -822,6 +841,12 @@ class MindmapEngine {
         } else {
           child.x = isRight ? parent.x + parent.width + horizontalGap : parent.x - child.width - horizontalGap;
           child.y = y + (child.subtreeHeight / 2) - (child.height / 2);
+
+          if (i > 0) {
+            const prevChild = parent.children[i - 1];
+            const minY = prevChild.y + prevChild.height + verticalGap;
+            if (child.y < minY) child.y = minY;
+          }
         }
 
         renderedNodes.push(child);
@@ -830,7 +855,6 @@ class MindmapEngine {
         const y1 = parent.y + (parent.height / 2);
         const x2 = isRight ? child.x : child.x + child.width;
         const y2 = child.y + (child.height / 2);
-        const dx = Math.abs(x2 - x1) * 0.55;
 
         branchPaths.push({
           d: MindmapEngine.generateBranchPath(x1, y1, x2, y2, isRight, connectorStyle),
@@ -840,8 +864,8 @@ class MindmapEngine {
           edgeText: child.edgeText || ''
         });
 
-        placeSlab(child, y, dir, color);
-        y += child.subtreeHeight;
+        placeSlab(child, child.y + (child.height / 2) - (child.subtreeHeight / 2), dir, color);
+        y = Math.max(y + child.subtreeHeight, child.y + child.height + verticalGap);
       }
     }
 
@@ -857,31 +881,31 @@ class MindmapEngine {
       } else {
         chap.x = rootNode.x + rootNode.width + horizontalGap;
         chap.y = curRightY + (chap.subtreeHeight / 2) - (chap.height / 2);
+
+        if (idx > 0) {
+          const prevChap = rightChildren[idx - 1];
+          const minY = prevChap.y + prevChap.height + chapterGap;
+          if (chap.y < minY) chap.y = minY;
+        }
       }
 
       renderedNodes.push(chap);
 
-      const x1 = rootNode.x + rootNode.width;
-      const y1 = rootNode.y + (rootNode.height / 2);
-      const x2 = chap.x;
-      const y2 = chap.y + (chap.height / 2);
-      const dx = Math.abs(x2 - x1) * 0.55;
-
       branchPaths.push({
-        d: MindmapEngine.generateBranchPath(x1, y1, x2, y2, true, connectorStyle),
+        d: MindmapEngine.generateBranchPath(rootNode.x + rootNode.width, rootNode.y + (rootNode.height / 2), chap.x, chap.y + (chap.height / 2), true, connectorStyle),
         color,
         fromId: rootNode.id,
         toId: chap.id,
         edgeText: chap.edgeText || ''
       });
 
-      placeSlab(chap, curRightY, 'right', color);
-      curRightY += chap.subtreeHeight + chapterGap;
+      placeSlab(chap, chap.y + (chap.height / 2) - (chap.subtreeHeight / 2), 'right', color);
+      curRightY = Math.max(curRightY + chap.subtreeHeight + chapterGap, chap.y + chap.height + chapterGap);
     });
 
     let curLeftY = rootNode.y + (rootNode.height / 2) - (totalLeftH / 2);
     leftChildren.forEach((chap, idx) => {
-      const color = BRANCH_COLORS[(idx + 4) % BRANCH_COLORS.length];
+      const color = BRANCH_COLORS[(idx + rightChildren.length) % BRANCH_COLORS.length];
       chap.color = color;
       chap.direction = 'left';
 
@@ -891,26 +915,26 @@ class MindmapEngine {
       } else {
         chap.x = rootNode.x - chap.width - horizontalGap;
         chap.y = curLeftY + (chap.subtreeHeight / 2) - (chap.height / 2);
+
+        if (idx > 0) {
+          const prevChap = leftChildren[idx - 1];
+          const minY = prevChap.y + prevChap.height + chapterGap;
+          if (chap.y < minY) chap.y = minY;
+        }
       }
 
       renderedNodes.push(chap);
 
-      const x1 = rootNode.x;
-      const y1 = rootNode.y + (rootNode.height / 2);
-      const x2 = chap.x + chap.width;
-      const y2 = chap.y + (chap.height / 2);
-      const dx = Math.abs(x1 - x2) * 0.55;
-
       branchPaths.push({
-        d: MindmapEngine.generateBranchPath(x1, y1, x2, y2, false, connectorStyle),
+        d: MindmapEngine.generateBranchPath(rootNode.x, rootNode.y + (rootNode.height / 2), chap.x + chap.width, chap.y + (chap.height / 2), false, connectorStyle),
         color,
         fromId: rootNode.id,
         toId: chap.id,
         edgeText: chap.edgeText || ''
       });
 
-      placeSlab(chap, curLeftY, 'left', color);
-      curLeftY += chap.subtreeHeight + chapterGap;
+      placeSlab(chap, chap.y + (chap.height / 2) - (chap.subtreeHeight / 2), 'left', color);
+      curLeftY = Math.max(curLeftY + chap.subtreeHeight + chapterGap, chap.y + chap.height + chapterGap);
     });
 
     MindmapEngine.resolveCollisions(renderedNodes, 45, 34);
@@ -960,7 +984,8 @@ class MindmapEngine {
       if (!parent.children || !parent.children.length || parent.layout === 'table' || parent.collapsed) return;
 
       let y = startY;
-      for (const child of parent.children) {
+      for (let i = 0; i < parent.children.length; i++) {
+        const child = parent.children[i];
         child.color = color;
         child.direction = 'right';
 
@@ -970,26 +995,26 @@ class MindmapEngine {
         } else {
           child.x = parent.x + parent.width + horizontalGap;
           child.y = y + (child.subtreeHeight / 2) - (child.height / 2);
+
+          if (i > 0) {
+            const prevChild = parent.children[i - 1];
+            const minY = prevChild.y + prevChild.height + verticalGap;
+            if (child.y < minY) child.y = minY;
+          }
         }
 
         renderedNodes.push(child);
 
-        const x1 = parent.x + parent.width;
-        const y1 = parent.y + (parent.height / 2);
-        const x2 = child.x;
-        const y2 = child.y + (child.height / 2);
-        const dx = Math.abs(x2 - x1) * 0.55;
-
         branchPaths.push({
-          d: MindmapEngine.generateBranchPath(x1, y1, x2, y2, true, connectorStyle),
+          d: MindmapEngine.generateBranchPath(parent.x + parent.width, parent.y + (parent.height / 2), child.x, child.y + (child.height / 2), true, connectorStyle),
           color,
           fromId: parent.id,
           toId: child.id,
           edgeText: child.edgeText || ''
         });
 
-        placeSlab(child, y, color);
-        y += child.subtreeHeight;
+        placeSlab(child, child.y + (child.height / 2) - (child.subtreeHeight / 2), color);
+        y = Math.max(y + child.subtreeHeight, child.y + child.height + verticalGap);
       }
     }
 
@@ -1005,33 +1030,33 @@ class MindmapEngine {
       } else {
         chap.x = rootNode.x + rootNode.width + horizontalGap;
         chap.y = curY + (chap.subtreeHeight / 2) - (chap.height / 2);
+
+        if (idx > 0) {
+          const prevChap = rootNode.children[idx - 1];
+          const minY = prevChap.y + prevChap.height + chapterGap;
+          if (chap.y < minY) chap.y = minY;
+        }
       }
 
       renderedNodes.push(chap);
 
-      const x1 = rootNode.x + rootNode.width;
-      const y1 = rootNode.y + (rootNode.height / 2);
-      const x2 = chap.x;
-      const y2 = chap.y + (chap.height / 2);
-      const dx = Math.abs(x2 - x1) * 0.55;
-
       branchPaths.push({
-        d: MindmapEngine.generateBranchPath(x1, y1, x2, y2, true, connectorStyle),
+        d: MindmapEngine.generateBranchPath(rootNode.x + rootNode.width, rootNode.y + (rootNode.height / 2), chap.x, chap.y + (chap.height / 2), true, connectorStyle),
         color,
         fromId: rootNode.id,
         toId: chap.id,
         edgeText: chap.edgeText || ''
       });
 
-      placeSlab(chap, curY, color);
-      curY += chap.subtreeHeight + chapterGap;
+      placeSlab(chap, chap.y + (chap.height / 2) - (chap.subtreeHeight / 2), color);
+      curY = Math.max(curY + chap.subtreeHeight + chapterGap, chap.y + chap.height + chapterGap);
     });
 
     MindmapEngine.resolveCollisions(renderedNodes, 45, 34);
     return { nodes: renderedNodes, paths: branchPaths, root: rootNode };
   }
 
-  static positionSubChildren(parent, color, direction, horizontalGap, renderedNodes, branchPaths, verticalGap = 40, connectorStyle = 'curved') {
+  static positionSubChildren(parent, color, direction, horizontalGap, renderedNodes, branchPaths, verticalGap = 42, connectorStyle = 'curved') {
     if (!parent.children || !parent.children.length || parent.layout === 'table' || parent.collapsed) return;
 
     let startY = parent.y + (parent.height / 2) - (parent.subtreeHeight / 2);
@@ -1048,6 +1073,15 @@ class MindmapEngine {
       } else {
         child.x = isRight ? parent.x + parent.width + horizontalGap : parent.x - child.width - horizontalGap;
         child.y = startY + (child.subtreeHeight / 2) - (child.height / 2);
+
+        // GARANZIA FISICA ANTI-SOVRAPPOSIZIONE CON IL FRATELLO PRECEDENTE
+        if (i > 0) {
+          const prevChild = parent.children[i - 1];
+          const minY = prevChild.y + prevChild.height + verticalGap;
+          if (child.y < minY) {
+            child.y = minY;
+          }
+        }
       }
 
       renderedNodes.push(child);
@@ -1056,7 +1090,6 @@ class MindmapEngine {
       const startYPoint = parent.y + (parent.height / 2);
       const targetX = isRight ? child.x : child.x + child.width;
       const targetYPoint = child.y + (child.height / 2);
-      const dx = Math.abs(targetX - startX) * 0.55;
 
       branchPaths.push({
         d: MindmapEngine.generateBranchPath(startX, startYPoint, targetX, targetYPoint, isRight, connectorStyle),
@@ -1066,7 +1099,7 @@ class MindmapEngine {
         edgeText: child.edgeText || ''
       });
 
-      startY += child.subtreeHeight;
+      startY = Math.max(startY + child.subtreeHeight, child.y + child.height + verticalGap);
 
       if (child.layout !== 'table') {
         MindmapEngine.positionSubChildren(child, color, direction, horizontalGap, renderedNodes, branchPaths, verticalGap, connectorStyle);
@@ -1282,7 +1315,7 @@ class MindmapExportModal extends Modal {
 
     const layoutWrap = contentEl.createDiv({ cls: 'cds-mm-export-layout' });
 
-    // Colonna Sinistra Comandi (Ampia e Chiara)
+    // Colonna Sinistra Comandi
     const sidebar = layoutWrap.createDiv({ cls: 'cds-mm-export-sidebar' });
 
     sidebar.createEl('label', { text: 'Formato File:', cls: 'cds-mm-export-label' });
@@ -1343,14 +1376,6 @@ class MindmapExportModal extends Modal {
       this.updatePreview();
     };
 
-    const multiBox = sidebar.createDiv({ cls: 'cds-mm-export-cartiglio-box', attr: { style: 'margin-top:6px;border-top:1px solid rgba(255,255,255,0.08);padding-top:6px;' } });
-    const multiCb = multiBox.createEl('input', { type: 'checkbox', attr: { id: 'cds-cb-multi' } });
-    multiCb.checked = !!this.isMultipageFascicolo;
-    const multiLbl = multiBox.createEl('label', { text: ' 📑 Fascicolo Tecnico Multipagina (Panoramica + Tavole Capitoli Singoli)', attr: { for: 'cds-cb-multi' } });
-    multiCb.onchange = () => {
-      this.isMultipageFascicolo = multiCb.checked;
-    };
-
     sidebar.createEl('label', { text: 'Intestazione Mappa (Header Top):', cls: 'cds-mm-export-label' });
     const headerInp = sidebar.createEl('input', { cls: 'cds-mm-export-input', value: this.headerText });
     headerInp.oninput = () => {
@@ -1372,7 +1397,7 @@ class MindmapExportModal extends Modal {
       this.updatePreview();
     };
 
-    const bDownload = sidebar.createEl('button', { cls: 'cds-mm-btn-primary', text: '💾 Esporta e Scarica' });
+    const bDownload = sidebar.createEl('button', { cls: 'cds-mm-btn-primary', text: '💾 Esporta e Scarica (Vault + PC)' });
     bDownload.onclick = () => this.doExport();
 
     // Colonna Destra Anteprima Ampia
@@ -1392,9 +1417,10 @@ class MindmapExportModal extends Modal {
       if (n.y + n.height > maxY) maxY = n.y + n.height;
     }
 
-    const padding = 80;
-    const contentW = (maxX - minX) + padding * 2;
-    const contentH = (maxY - minY) + padding * 2;
+    // Margine compatto e proporzionato attorno al contenuto
+    const padding = 55;
+    const contentW = Math.max(200, (maxX - minX) + padding * 2);
+    const contentH = Math.max(150, (maxY - minY) + padding * 2);
 
     if (this.paperSize === 'Auto' || !PAPER_SIZES[this.paperSize]) {
       return { targetW: contentW, targetH: contentH, minX, minY, maxX, maxY, contentW, contentH };
@@ -1404,7 +1430,6 @@ class MindmapExportModal extends Modal {
     const baseMin = Math.min(p.w, p.h);
     const baseMax = Math.max(p.w, p.h);
 
-    // Landscape: Width is larger; Portrait: Height is larger
     const isLandscape = this.orientation === 'landscape';
     const sheetW = isLandscape ? baseMax : baseMin;
     const sheetH = isLandscape ? baseMin : baseMax;
@@ -1420,6 +1445,111 @@ class MindmapExportModal extends Modal {
     }
 
     return { targetW, targetH, minX, minY, maxX, maxY, contentW, contentH, sheetW, sheetH, isLandscape };
+  }
+
+  drawNodeOnExportCanvas(ctx, n, bgStyle, isPreview = false, scale = 1) {
+    const isLight = bgStyle === 'light';
+    const cardBg = n.isRoot 
+      ? '#2563eb' 
+      : (isLight ? '#f8fafc' : '#1a2238');
+    const borderColor = n.customColor || (n.isRoot ? '#60a5fa' : n.color || '#38bdf8');
+    const textColor = n.isRoot ? '#ffffff' : (isLight ? '#0f172a' : '#f8fafc');
+    const bodyColor = isLight ? '#334155' : '#cbd5e1';
+
+    // Disegna sfondo scheda arrotondata
+    ctx.fillStyle = cardBg;
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = isPreview ? 1.5 : 2;
+
+    ctx.beginPath();
+    ctx.roundRect(n.x, n.y, n.width, n.height, isPreview ? 5 : 8);
+    ctx.fill();
+    ctx.stroke();
+
+    // 1. Disegna Titolo Nodo con word-wrap
+    ctx.fillStyle = textColor;
+    ctx.font = n.isRoot ? 'bold 15px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' : 'bold 12.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.textBaseline = 'top';
+
+    const paddingX = 10;
+    const maxTextW = n.width - (paddingX * 2);
+    let curY = n.y + 8;
+
+    const titleWords = (n.text || '').split(' ');
+    let currentLine = '';
+    for (let wIdx = 0; wIdx < titleWords.length; wIdx++) {
+      const testLine = currentLine + (currentLine ? ' ' : '') + titleWords[wIdx];
+      if (ctx.measureText(testLine).width > maxTextW && currentLine) {
+        ctx.fillText(currentLine, n.x + paddingX, curY);
+        currentLine = titleWords[wIdx];
+        curY += 17;
+      } else {
+        currentLine = testLine;
+      }
+    }
+    if (currentLine) {
+      ctx.fillText(currentLine, n.x + paddingX, curY);
+      curY += 17;
+    }
+
+    // 2. Disegna Testo Completo Corpo (se attivo e presente)
+    const hasFull = (this.canvas.detailLevel === 'full' || n.isExpanded) && n.bodyText && n.bodyText.trim();
+    if (hasFull) {
+      curY += 2;
+      ctx.strokeStyle = isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.12)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(n.x + paddingX, curY);
+      ctx.lineTo(n.x + n.width - paddingX, curY);
+      ctx.stroke();
+      curY += 5;
+
+      ctx.fillStyle = bodyColor;
+      ctx.font = '10.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+
+      const paragraphs = n.bodyText.split('\n');
+      for (const para of paragraphs) {
+        const pTrimmed = para.trim();
+        if (!pTrimmed) {
+          curY += 6;
+          continue;
+        }
+        const words = pTrimmed.split(' ');
+        let pLine = '';
+        for (let i = 0; i < words.length; i++) {
+          const test = pLine + (pLine ? ' ' : '') + words[i];
+          if (ctx.measureText(test).width > maxTextW && pLine) {
+            ctx.fillText(pLine, n.x + paddingX, curY);
+            pLine = words[i];
+            curY += 15;
+            if (curY > n.y + n.height - 20) break;
+          } else {
+            pLine = test;
+          }
+        }
+        if (pLine && curY <= n.y + n.height - 16) {
+          ctx.fillText(pLine, n.x + paddingX, curY);
+          curY += 15;
+        }
+        if (curY > n.y + n.height - 20) break;
+      }
+    }
+
+    // 3. Badge PDF se presente
+    if (n.pdfLink) {
+      const badgeY = n.y + n.height - 20;
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.18)';
+      ctx.strokeStyle = 'rgba(239, 68, 68, 0.4)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(n.x + paddingX, badgeY, n.width - (paddingX * 2), 15, 3);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = isLight ? '#b91c1c' : '#fca5a5';
+      ctx.font = 'bold 9px sans-serif';
+      ctx.fillText(`📄 ${n.pdfLink.file} · Pag. ${n.pdfLink.page}`, n.x + paddingX + 4, badgeY + 2);
+    }
   }
 
   updatePreview() {
@@ -1450,14 +1580,14 @@ class MindmapExportModal extends Modal {
     ctx.lineWidth = 2;
     ctx.strokeRect(2, 2, pCanvas.width - 4, pCanvas.height - 4);
 
-    const offsetX = (geo.targetW - geo.contentW) / 2 + 80 - geo.minX;
-    const offsetY = (geo.targetH - geo.contentH) / 2 + 80 - geo.minY;
+    const offsetX = (geo.targetW - geo.contentW) / 2 + 55 - geo.minX;
+    const offsetY = (geo.targetH - geo.contentH) / 2 + 55 - geo.minY;
 
     ctx.save();
     ctx.scale(scale, scale);
     ctx.translate(offsetX, offsetY);
 
-    // Curve di connessione
+    // Connessioni
     for (const p of this.canvas.renderedPaths || []) {
       ctx.strokeStyle = p.color || '#38bdf8';
       ctx.lineWidth = 2.6;
@@ -1465,25 +1595,14 @@ class MindmapExportModal extends Modal {
       ctx.stroke(path2d);
     }
 
-    // Nodi
+    // Nodi con testo completo
     for (const n of this.canvas.renderedNodes || []) {
-      ctx.fillStyle = n.isRoot ? '#2563eb' : (this.bgStyle === 'light' ? '#f1f5f9' : '#1e293b');
-      ctx.strokeStyle = n.color || '#38bdf8';
-      ctx.lineWidth = 1.8;
-
-      ctx.beginPath();
-      ctx.roundRect(n.x, n.y, n.width, n.height, 8);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = (this.bgStyle === 'light' && !n.isRoot) ? '#0f172a' : '#ffffff';
-      ctx.font = n.isRoot ? 'bold 16px sans-serif' : '13px sans-serif';
-      ctx.fillText(n.text.slice(0, 30), n.x + 10, n.y + (n.height / 2) + 5);
+      this.drawNodeOnExportCanvas(ctx, n, this.bgStyle, true, scale);
     }
 
     ctx.restore();
 
-    // Cartiglio / Timbro nell'angolo inferiore destro
+    // Cartiglio
     if (this.includeTitleBlock) {
       this.drawTitleBlockOnCanvas(ctx, pCanvas.width, pCanvas.height, scale);
     }
@@ -1493,7 +1612,7 @@ class MindmapExportModal extends Modal {
     const s = scale || 1;
     if (this.headerText) {
       ctx.fillStyle = '#38bdf8';
-      ctx.font = 'bold ' + Math.max(9, Math.round(11 * s)) + 'px sans-serif';
+      ctx.font = 'bold ' + Math.max(9, Math.round(12 * s)) + 'px sans-serif';
       ctx.fillText(this.headerText.slice(0, 60), 16 * s, 22 * s);
     }
 
@@ -1504,87 +1623,75 @@ class MindmapExportModal extends Modal {
     const boxX = w - boxW - (12 * s);
     const boxY = h - boxH - (12 * s);
 
-    ctx.fillStyle = this.bgStyle === 'light' ? 'rgba(241, 245, 249, 0.96)' : 'rgba(22, 27, 46, 0.96)';
+    ctx.fillStyle = this.bgStyle === 'light' ? '#f1f5f9' : '#161b2e';
     ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = Math.max(1, 1.8 * s);
-
+    ctx.lineWidth = 1.5;
     ctx.fillRect(boxX, boxY, boxW, boxH);
     ctx.strokeRect(boxX, boxY, boxW, boxH);
 
-    const pad = 10 * s;
     ctx.fillStyle = '#38bdf8';
     ctx.font = 'bold ' + Math.max(8, Math.round(11 * s)) + 'px sans-serif';
-    ctx.fillText(this.stampLogo.slice(0, 30), boxX + pad, boxY + (16 * s));
+    ctx.fillText(this.stampLogo, boxX + 8 * s, boxY + 16 * s);
 
-    ctx.fillStyle = this.bgStyle === 'light' ? '#0f172a' : '#f8fafc';
-    ctx.font = 'bold ' + Math.max(8, Math.round(10 * s)) + 'px sans-serif';
-    const noteTitle = (this.canvas.rawRootNode.text || 'Mappa').slice(0, 32);
-    ctx.fillText(noteTitle, boxX + pad, boxY + (32 * s));
+    ctx.fillStyle = this.bgStyle === 'light' ? '#0f172a' : '#ffffff';
+    ctx.font = Math.max(8, Math.round(10 * s)) + 'px sans-serif';
+    ctx.fillText((this.canvas.rawRootNode.text || 'Mappa').slice(0, 28), boxX + 8 * s, boxY + 34 * s);
 
     ctx.fillStyle = '#94a3b8';
     ctx.font = Math.max(7, Math.round(9 * s)) + 'px sans-serif';
-    const dateStr = new Date().toISOString().slice(0, 10);
-    ctx.fillText(this.paperSize + ' ' + this.orientation + ' · ' + dateStr + ' · ' + this.authorName.slice(0, 20), boxX + pad, boxY + (48 * s));
-
-    if (this.includeStamp) {
-      const sW = Math.round(this.stampWidth * s);
-      const sH = Math.round(this.stampHeight * s);
-      const stampX = boxX - sW - (10 * s);
-      const stampY = h - sH - (12 * s);
-
-      ctx.strokeStyle = '#f43f5e';
-      ctx.lineWidth = Math.max(1, 1.5 * s);
-      ctx.strokeRect(stampX, stampY, sW, sH);
-
-      ctx.fillStyle = '#f43f5e';
-      ctx.font = 'bold ' + Math.max(6, Math.round(8 * s)) + 'px sans-serif';
-      ctx.fillText('TIMBRO CDS', stampX + (4 * s), stampY + (14 * s));
-      ctx.fillText('ORDINE ARCHITETTI', stampX + (4 * s), stampY + (26 * s));
-      ctx.fillText('VALIDATO', stampX + (4 * s), stampY + (40 * s));
-    }
-
-    if (this.includeSignature) {
-      const sigW = Math.round(this.signatureWidth * s);
-      const sigH = Math.round(this.signatureHeight * s);
-      const sigX = boxX + boxW - sigW - (8 * s);
-      const sigY = boxY + boxH - sigH - (4 * s);
-
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
-      ctx.beginPath();
-      ctx.moveTo(sigX, sigY + sigH - 2);
-      ctx.lineTo(sigX + sigW, sigY + sigH - 2);
-      ctx.stroke();
-
-      ctx.fillStyle = '#38bdf8';
-      ctx.font = 'italic ' + Math.max(7, Math.round(9 * s)) + 'px sans-serif';
-      ctx.fillText(this.signatureText.slice(0, 22), sigX + (4 * s), sigY + sigH - (6 * s));
-    }
+    ctx.fillText(`${this.paperSize} ${this.orientation} · ${this.authorName}`, boxX + 8 * s, boxY + 52 * s);
   }
 
-  doExport() {
+  async doExport() {
     const title = (this.canvas.rawRootNode.text || 'mindmap').replace(/[/\\?%*:|"<>]/g, '_');
     const ext = this.format;
     const fileName = `${title}_${this.paperSize}_${this.orientation}.${ext}`;
     const geo = this.calculateGeometry();
 
-    // 1. ESPORTAZIONE VETTORIALE SVG COMPLETA
+    // 1. ESPORTAZIONE VETTORIALE SVG COMPLETA CON TESTO MULTILINEA
     if (this.format === 'svg') {
       const svgContent = this.generateCompleteVectorSVG(geo);
-      const blob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName;
-      a.click();
-      URL.revokeObjectURL(url);
-      new Notice(`✅ Esportazione vettoriale completata: ${fileName}`);
+
+      // Salva sempre direttamente nel Vault Obsidian
+      try {
+        const exportFolder = 'Mappe Esportate';
+        if (!(await this.app.vault.adapter.exists(exportFolder))) {
+          await this.app.vault.createFolder(exportFolder);
+        }
+        const vaultPath = `${exportFolder}/${fileName}`;
+        await this.app.vault.adapter.write(vaultPath, svgContent);
+      } catch (err) {
+        console.warn('[EXPORT SVG] Vault write error:', err);
+      }
+
+      // Download sul browser / PC
+      try {
+        const blob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          try { document.body.removeChild(a); } catch (e) {}
+          URL.revokeObjectURL(url);
+        }, 3000);
+      } catch (err) {
+        console.warn('[EXPORT SVG] Download error:', err);
+      }
+
+      new Notice(`✅ Mappa SVG salvata in "Mappe Esportate" e scaricata!`, 6000);
       this.close();
       return;
     }
 
-    // 2. ESPORTAZIONE RASTER HD (PNG, JPG, PDF)
+    // 2. ESPORTAZIONE RASTER HD (PNG, JPG, PDF) CON ALTA DENSITÀ E TESTO LEGGIBILE
+    const dpiMap = { A6: 4, A5: 4, A4: 3.5, A3: 3, A2: 2.5, A1: 2, A0: 1.8, Auto: 2.5 };
+    const dpi = dpiMap[this.paperSize] || this.qualityDpi || 2.5;
+
     const exportCanvas = document.createElement('canvas');
-    const dpi = this.qualityDpi;
     exportCanvas.width = Math.round(geo.targetW * dpi);
     exportCanvas.height = Math.round(geo.targetH * dpi);
 
@@ -1599,12 +1706,13 @@ class MindmapExportModal extends Modal {
       ctx.fillRect(0, 0, geo.targetW, geo.targetH);
     }
 
-    const offsetX = (geo.targetW - geo.contentW) / 2 + 80 - geo.minX;
-    const offsetY = (geo.targetH - geo.contentH) / 2 + 80 - geo.minY;
+    const offsetX = (geo.targetW - geo.contentW) / 2 + 55 - geo.minX;
+    const offsetY = (geo.targetH - geo.contentH) / 2 + 55 - geo.minY;
 
     ctx.save();
     ctx.translate(offsetX, offsetY);
 
+    // Connessioni
     for (const p of this.canvas.renderedPaths || []) {
       ctx.strokeStyle = p.color || '#38bdf8';
       ctx.lineWidth = 2.8;
@@ -1612,25 +1720,15 @@ class MindmapExportModal extends Modal {
       ctx.stroke(path2d);
     }
 
+    // Nodi con disegno completo del testo
     for (const n of this.canvas.renderedNodes || []) {
-      ctx.fillStyle = n.isRoot ? '#2563eb' : (this.bgStyle === 'light' ? '#f8fafc' : '#1a2238');
-      ctx.strokeStyle = n.color || '#38bdf8';
-      ctx.lineWidth = 2;
-
-      ctx.beginPath();
-      ctx.roundRect(n.x, n.y, n.width, n.height, 8);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = (this.bgStyle === 'light' && !n.isRoot) ? '#0f172a' : '#ffffff';
-      ctx.font = n.isRoot ? 'bold 18px sans-serif' : '14px sans-serif';
-      ctx.fillText(n.text, n.x + 12, n.y + (n.height / 2) + 5);
+      this.drawNodeOnExportCanvas(ctx, n, this.bgStyle, false, 1);
     }
 
     ctx.restore();
 
+    // Cartiglio
     if (this.includeTitleBlock) {
-      // Cartiglio su scala esportazione
       const boxW = 340;
       const boxH = 90;
       const boxX = geo.targetW - boxW - 24;
@@ -1657,79 +1755,106 @@ class MindmapExportModal extends Modal {
 
     if (this.format === 'pdf') {
       const dataUrl = exportCanvas.toDataURL('image/jpeg', 0.95);
-      const printWindow = window.open('', '_blank');
-      if (printWindow) {
-        let pagesHtml = `<div class="print-page"><img src="${dataUrl}" /></div>`;
 
-        if (this.isMultipageFascicolo && this.canvas.rawRootNode && this.canvas.rawRootNode.children) {
-          const chapters = this.canvas.rawRootNode.children;
-          chapters.forEach((chap, cIdx) => {
-            const chapCanvas = document.createElement('canvas');
-            chapCanvas.width = exportCanvas.width;
-            chapCanvas.height = exportCanvas.height;
-            const cCtx = chapCanvas.getContext('2d');
-
-            cCtx.fillStyle = this.bgStyle === 'light' ? '#ffffff' : '#0d1117';
-            cCtx.fillRect(0, 0, chapCanvas.width, chapCanvas.height);
-
-            cCtx.fillStyle = '#38bdf8';
-            cCtx.font = 'bold 22px sans-serif';
-            cCtx.fillText('TAVOLA ' + (cIdx + 2) + ': ' + (chap.text || '').toUpperCase(), 40, 50);
-
-            cCtx.save();
-            cCtx.globalAlpha = 0.25;
-            cCtx.drawImage(exportCanvas, 0, 0);
-            cCtx.restore();
-
-            const chapNode = (this.canvas.renderedNodes || []).find(n => n.id === chap.id);
-            if (chapNode) {
-              const offsetX = (geo.targetW - geo.contentW) / 2 + 80 - geo.minX;
-              const offsetY = (geo.targetH - geo.contentH) / 2 + 80 - geo.minY;
-              cCtx.save();
-              cCtx.translate(offsetX, offsetY);
-              cCtx.strokeStyle = '#fbbf24';
-              cCtx.lineWidth = 3;
-              cCtx.strokeRect(chapNode.x - 12, chapNode.y - 12, chapNode.width + 24, chapNode.height + 24);
-              cCtx.restore();
-            }
-
-            const chapDataUrl = chapCanvas.toDataURL('image/jpeg', 0.95);
-            pagesHtml += `<div class="print-page" style="page-break-before: always;"><img src="${chapDataUrl}" /></div>`;
-          });
+      // Salva copia HD nel Vault
+      try {
+        const arrayBuffer = await (await fetch(dataUrl)).arrayBuffer();
+        const exportFolder = 'Mappe Esportate';
+        if (!(await this.app.vault.adapter.exists(exportFolder))) {
+          await this.app.vault.createFolder(exportFolder);
         }
-
-        printWindow.document.write(`
-          <html>
-            <head>
-              <title>${title} - Fascicolo Tecnico CDS</title>
-              <style>
-                @page { size: ${this.paperSize === 'Auto' ? 'auto' : this.paperSize} ${this.orientation}; margin: 0; }
-                body { margin: 0; background: ${this.bgStyle === 'light' ? '#ffffff' : '#0d1117'}; }
-                .print-page { width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; page-break-after: always; }
-                img { width: 100vw; height: 100vh; object-fit: contain; }
-              </style>
-            </head>
-            <body>
-              ${pagesHtml}
-              <script>window.onload = () => window.print();</script>
-            </body>
-          </html>
-        `);
-        printWindow.document.close();
+        await this.app.vault.adapter.writeBinary(`${exportFolder}/${title}_${this.paperSize}_HD.jpg`, arrayBuffer);
+      } catch (err) {
+        console.warn('[EXPORT PDF] Vault write error:', err);
       }
-      new Notice(`📄 Fascicolo di stampa PDF ${this.paperSize} pronto!`);
-    } else {
-      const mime = this.format === 'jpg' ? 'image/jpeg' : 'image/png';
-      exportCanvas.toBlob((blob) => {
+
+      // Avvia stampa PDF tramite iframe isolato (evita blocchi popup di Electron)
+      let iframe = document.getElementById('cds-mm-print-frame');
+      if (iframe) iframe.remove();
+      iframe = document.createElement('iframe');
+      iframe.id = 'cds-mm-print-frame';
+      iframe.style.position = 'fixed';
+      iframe.style.right = '0';
+      iframe.style.bottom = '0';
+      iframe.style.width = '0';
+      iframe.style.height = '0';
+      iframe.style.border = '0';
+      document.body.appendChild(iframe);
+
+      const printDoc = iframe.contentWindow.document;
+      printDoc.open();
+      printDoc.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>${title} - ${this.paperSize}</title>
+            <style>
+              @page { size: ${this.paperSize === 'Auto' ? 'auto' : this.paperSize} ${this.orientation}; margin: 0; }
+              body { margin: 0; padding: 0; background: ${this.bgStyle === 'light' ? '#ffffff' : '#0d1117'}; }
+              .page { width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
+              img { max-width: 100%; max-height: 100%; object-fit: contain; }
+            </style>
+          </head>
+          <body>
+            <div class="page"><img src="${dataUrl}" /></div>
+          </body>
+        </html>
+      `);
+      printDoc.close();
+
+      setTimeout(() => {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+        setTimeout(() => {
+          try { iframe.remove(); } catch (e) {}
+        }, 60000);
+      }, 400);
+
+      new Notice(`📄 Finestra di stampa PDF avviata! Copia salvata in "Mappe Esportate".`, 6000);
+      this.close();
+      return;
+    }
+
+    // Per PNG e JPG: Salva su Vault e scarica su disco
+    const mime = this.format === 'jpg' ? 'image/jpeg' : 'image/png';
+    exportCanvas.toBlob(async (blob) => {
+      if (!blob) {
+        new Notice("❌ Errore nella generazione dell'immagine.");
+        return;
+      }
+
+      // 1. Salva nel Vault Obsidian
+      try {
+        const arrayBuffer = await blob.arrayBuffer();
+        const exportFolder = 'Mappe Esportate';
+        if (!(await this.app.vault.adapter.exists(exportFolder))) {
+          await this.app.vault.createFolder(exportFolder);
+        }
+        const vaultPath = `${exportFolder}/${fileName}`;
+        await this.app.vault.adapter.writeBinary(vaultPath, arrayBuffer);
+      } catch (err) {
+        console.warn('[EXPORT] Vault save error:', err);
+      }
+
+      // 2. Download su disco
+      try {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
+        a.style.display = 'none';
         a.href = url;
         a.download = fileName;
+        document.body.appendChild(a);
         a.click();
-        URL.revokeObjectURL(url);
-        new Notice(`✅ Mappa esportata come ${fileName}!`);
-      }, mime, 0.95);
-    }
+        setTimeout(() => {
+          try { document.body.removeChild(a); } catch (e) {}
+          URL.revokeObjectURL(url);
+        }, 3000);
+      } catch (err) {
+        console.warn('[EXPORT] Download link error:', err);
+      }
+
+      new Notice(`✅ Mappa salvata in "Mappe Esportate" e scaricata su PC!`, 6000);
+    }, mime, 0.95);
 
     this.close();
   }
@@ -1737,15 +1862,17 @@ class MindmapExportModal extends Modal {
   generateCompleteVectorSVG(geo) {
     const bg = this.bgStyle === 'light' ? '#ffffff' : (this.bgStyle === 'transparent' ? 'none' : '#0d1117');
     const textFill = this.bgStyle === 'light' ? '#0f172a' : '#ffffff';
-    const offsetX = (geo.targetW - geo.contentW) / 2 + 80 - geo.minX;
-    const offsetY = (geo.targetH - geo.contentH) / 2 + 80 - geo.minY;
+    const bodyFill = this.bgStyle === 'light' ? '#334155' : '#cbd5e1';
+    const offsetX = (geo.targetW - geo.contentW) / 2 + 55 - geo.minX;
+    const offsetY = (geo.targetH - geo.contentH) / 2 + 55 - geo.minY;
 
     let svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(geo.targetW)}" height="${Math.round(geo.targetH)}" viewBox="0 0 ${Math.round(geo.targetW)} ${Math.round(geo.targetH)}">
 <defs>
   <style>
-    .node-text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; fill: ${textFill}; }
-    .root-text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 18px; font-weight: bold; fill: #ffffff; }
+    .node-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 13px; font-weight: bold; fill: ${textFill}; }
+    .root-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 16px; font-weight: bold; fill: #ffffff; }
+    .node-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 11px; fill: ${bodyFill}; }
     .branch-line { fill: none; stroke-linecap: round; stroke-width: 2.8px; }
   </style>
 </defs>
@@ -1757,7 +1884,7 @@ class MindmapExportModal extends Modal {
 
     svg += `<g transform="translate(${offsetX}, ${offsetY})">\n`;
 
-    // Branch paths & edge labels
+    // Connessioni
     for (const p of this.canvas.renderedPaths || []) {
       svg += `  <path d="${p.d}" stroke="${p.color || '#38bdf8'}" class="branch-line"/>\n`;
       if (p.edgeText) {
@@ -1779,27 +1906,78 @@ class MindmapExportModal extends Modal {
       }
     }
 
-    // Nodes
+    // Nodi con titoli e testo completo su linee tspan
     for (const n of this.canvas.renderedNodes || []) {
       const fill = n.isRoot ? '#2563eb' : (this.bgStyle === 'light' ? '#f8fafc' : '#1a2238');
-      const stroke = n.color || '#38bdf8';
-      const cleanText = (n.text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-      svg += `  <g class="node-group">
+      const stroke = n.customColor || (n.isRoot ? '#60a5fa' : n.color || '#38bdf8');
+      
+      svg += `  <g class="node-card">
     <rect x="${n.x}" y="${n.y}" width="${n.width}" height="${n.height}" rx="8" fill="${fill}" stroke="${stroke}" stroke-width="2"/>
-    <text x="${n.x + 14}" y="${n.y + (n.height / 2) + 5}" class="${n.isRoot ? 'root-text' : 'node-text'}">${cleanText}</text>
-  </g>\n`;
+`;
+
+      // Word wrap per il titolo
+      const maxChar = Math.max(16, Math.floor((n.width - 24) / 7.5));
+      const titleLines = [];
+      const words = (n.text || '').split(' ');
+      let cur = '';
+      for (const w of words) {
+        if ((cur + ' ' + w).length > maxChar && cur) {
+          titleLines.push(cur);
+          cur = w;
+        } else {
+          cur = cur ? cur + ' ' + w : w;
+        }
+      }
+      if (cur) titleLines.push(cur);
+
+      let tY = n.y + 18;
+      svg += `    <text x="${n.x + 12}" y="${tY}" class="${n.isRoot ? 'root-title' : 'node-title'}">\n`;
+      titleLines.forEach((tl, i) => {
+        const cleanTl = tl.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        svg += `      <tspan x="${n.x + 12}" dy="${i === 0 ? 0 : 16}">${cleanTl}</tspan>\n`;
+        tY += 16;
+      });
+      svg += `    </text>\n`;
+
+      // Testo completo del paragrafo
+      const hasFull = (this.canvas.detailLevel === 'full' || n.isExpanded) && n.bodyText && n.bodyText.trim();
+      if (hasFull) {
+        tY += 4;
+        svg += `    <line x1="${n.x + 10}" y1="${tY}" x2="${n.x + n.width - 10}" y2="${tY}" stroke="${this.bgStyle === 'light' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.12)'}" stroke-width="1"/>\n`;
+        tY += 14;
+
+        const bodyLines = [];
+        const bodyMaxChar = Math.max(20, Math.floor((n.width - 24) / 6.4));
+        for (const p of n.bodyText.split('\n')) {
+          const pWords = p.trim().split(' ');
+          let bCur = '';
+          for (const pw of pWords) {
+            if ((bCur + ' ' + pw).length > bodyMaxChar && bCur) {
+              bodyLines.push(bCur);
+              bCur = pw;
+            } else {
+              bCur = bCur ? bCur + ' ' + pw : pw;
+            }
+          }
+          if (bCur) bodyLines.push(bCur);
+        }
+
+        svg += `    <text x="${n.x + 12}" y="${tY}" class="node-body">\n`;
+        bodyLines.forEach((bl, i) => {
+          if (tY + i * 15 < n.y + n.height - 10) {
+            const cleanBl = bl.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            svg += `      <tspan x="${n.x + 12}" dy="${i === 0 ? 0 : 15}">${cleanBl}</tspan>\n`;
+          }
+        });
+        svg += `    </text>\n`;
+      }
+
+      svg += `  </g>\n`;
     }
 
     svg += `</g>\n`;
 
-    // Intestazione Superiore Vettoriale
-    if (this.includeTitleBlock && this.headerText) {
-      const cleanHeader = this.headerText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      svg += `  <text x="30" y="40" font-family="sans-serif" font-size="16" font-weight="bold" fill="#38bdf8">${cleanHeader}</text>\n`;
-    }
-
-    // Cartiglio vettoriale
+    // Cartiglio
     if (this.includeTitleBlock) {
       const boxW = 360;
       const boxH = 96;
@@ -1813,7 +1991,7 @@ class MindmapExportModal extends Modal {
   <rect width="${boxW}" height="${boxH}" rx="8" fill="${cFill}" stroke="#38bdf8" stroke-width="2"/>
   <text x="16" y="26" font-family="sans-serif" font-size="14" font-weight="bold" fill="#38bdf8">${cleanLogo}</text>
   <text x="16" y="52" font-family="sans-serif" font-size="13" font-weight="600" fill="${textFill}">${cleanTitle}</text>
-  <text x="16" y="76" font-family="sans-serif" font-size="11" fill="#94a3b8">Formato: ${this.paperSize} ${this.orientation} · ${new Date().toISOString().slice(0, 10)} · ${this.authorName}</text>
+  <text x="16" y="76" font-family="sans-serif" font-size="11" fill="#94a3b8">Formato ${this.paperSize} ${this.orientation} · ${new Date().toISOString().slice(0, 10)} · ${this.authorName}</text>
 </g>\n`;
     }
 

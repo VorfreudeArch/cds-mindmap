@@ -1,9 +1,9 @@
 {
   "id": "cds-mindmap",
   "name": "CDS Mindmap & Concept Tree",
-  "version": "1.7.6",
+  "version": "1.7.7",
   "minAppVersion": "1.0.0",
-  "description": "Suite studio e architettura: pulsanti micro-azione direttamente nel nodo (+ Figlio, + Fratello, 🎨, 🗑️), top dock multi-riga flex-wrap con toggle collasso, persistenza nodi canvas, 3 temi (Dark Studio, CAD Blueprint, Carta Editoriale), ricerca sequenziale 1/N e minimap radar.",
+  "description": "Suite studio e architettura: testo completo non sovrapposto (geometria dinamica e schede compatte), esportazione e download robusti (PNG HD, SVG vettoriale, PDF da iframe, JPG), doppio salvataggio automatico nel Vault ('Mappe Esportate') e su disco, leggibilità garantita per ogni formato carta (A0-A6).",
   "author": "VorfreudeArch",
   "isDesktopOnly": false
 }
