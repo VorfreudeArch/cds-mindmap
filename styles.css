@@ -1,0 +1,403 @@
+/* ==========================================================================
+   CDS Mindmap & Mappe Concettuali (MarkMind & Enhancing Mindmap Suite)
+   ========================================================================== */
+
+.cds-mm-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--background-primary, #0f121d);
+  user-select: none;
+  font-family: var(--font-text, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+}
+
+/* Floating Toolbar */
+.cds-mm-toolbar {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(22, 27, 44, 0.88);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 5px 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.cds-mm-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-normal, #e2e8f0);
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.18s ease;
+}
+
+.cds-mm-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #38bdf8;
+  transform: translateY(-1px);
+}
+
+.cds-mm-btn.is-active {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+}
+
+.cds-mm-divider {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.15);
+  margin: 0 3px;
+}
+
+/* Mode Switcher Pill in Top Left */
+.cds-mm-mode-bar {
+  position: absolute;
+  top: 14px;
+  left: 18px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(22, 27, 44, 0.88);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 4px 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.cds-mm-mode-btn {
+  padding: 5px 11px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted, #94a3b8);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.cds-mm-mode-btn.is-active {
+  background: #38bdf8;
+  color: #0f172a;
+}
+
+/* Canvas Area */
+.cds-mm-viewport {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  cursor: grab;
+}
+
+.cds-mm-viewport.is-dragging {
+  cursor: grabbing;
+}
+
+.cds-mm-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+/* SVG Connection Lines */
+.cds-mm-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.cds-mm-branch-path {
+  fill: none;
+  stroke-width: 2.4px;
+  stroke-linecap: round;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease;
+}
+
+.cds-mm-branch-path.is-selected {
+  stroke-width: 3.8px;
+  filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.6));
+}
+
+/* HTML Nodes */
+.cds-mm-nodes-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.cds-mm-node {
+  position: absolute;
+  pointer-events: auto;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  background: rgba(30, 36, 56, 0.94);
+  border: 1.5px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 6px 12px;
+  color: var(--text-normal, #f1f5f9);
+  font-size: 0.88rem;
+  line-height: 1.35;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-width: 380px;
+}
+
+.cds-mm-node:hover {
+  transform: translateY(-1px);
+  border-color: rgba(56, 189, 248, 0.6);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+.cds-mm-node.is-selected {
+  border-color: #38bdf8 !0important;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.35), 0 8px 25px rgba(0, 0, 0, 0.5);
+  background: rgba(38, 48, 76, 0.98);
+}
+
+/* Root Node Specific Styling */
+.cds-mm-node.is-root {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  color: #ffffff;
+  font-size: 1.15rem;
+  font-weight: 700;
+  border-radius: 12px;
+  padding: 10px 20px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 8px 25px rgba(37, 99, 235, 0.4);
+}
+
+/* Depth Levels */
+.cds-mm-node.level-1 {
+  font-weight: 600;
+  font-size: 0.96rem;
+}
+
+/* PDF Excerpt Badge */
+.cds-mm-pdf-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cds-mm-pdf-badge:hover {
+  background: rgba(239, 68, 68, 0.35);
+  color: #fee2e2;
+  transform: scale(1.04);
+}
+
+/* Fold / Unfold Pill Button */
+.cds-mm-fold-btn {
+  position: absolute;
+  right: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #334155;
+  border: 1.5px solid rgba(255, 255, 255, 0.3);
+  color: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  z-index: 10;
+}
+
+.cds-mm-fold-btn:hover {
+  background: #38bdf8;
+  color: #0f172a;
+  transform: translateY(-50%) scale(1.2);
+}
+
+.cds-mm-fold-btn.is-collapsed {
+  background: #f59e0b;
+  color: #0f172a;
+  padding: 0 4px;
+  width: auto;
+  border-radius: 10px;
+  font-size: 0.68rem;
+}
+
+/* Quick Add Node (+) on Hover */
+.cds-mm-add-btn {
+  position: absolute;
+  right: -26px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #10b981;
+  color: #ffffff;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  z-index: 10;
+}
+
+.cds-mm-node:hover .cds-mm-add-btn {
+  display: flex;
+}
+
+.cds-mm-add-btn:hover {
+  background: #059669;
+  transform: translateY(-50%) scale(1.2);
+}
+
+/* Inline Editor Input */
+.cds-mm-editor-input {
+  position: absolute;
+  background: #1e293b;
+  color: #f8fafc;
+  border: 2px solid #38bdf8;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.88rem;
+  line-height: 1.35;
+  font-family: inherit;
+  outline: none;
+  z-index: 60;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  min-width: 140px;
+}
+
+/* Drag Ghost & Drop Target Line */
+.cds-mm-node.is-ghost {
+  opacity: 0.4;
+  border-style: dashed;
+}
+
+.cds-mm-drop-line {
+  position: absolute;
+  height: 3px;
+  background: #38bdf8;
+  border-radius: 2px;
+  box-shadow: 0 0 8px #38bdf8;
+  z-index: 40;
+  pointer-events: none;
+}
+
+.cds-mm-node.is-drop-target {
+  border-color: #10b981 !important;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.4) !important;
+}
+
+/* Keyboard Guide Footer */
+.cds-mm-footer-guide {
+  position: absolute;
+  bottom: 12px;
+  left: 18px;
+  z-index: 50;
+  display: flex;
+  gap: 12px;
+  background: rgba(15, 23, 42, 0.82);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 5px 12px;
+  font-size: 0.74rem;
+  color: var(--text-muted, #94a3b8);
+}
+
+.cds-mm-footer-guide kbd {
+  background: rgba(255, 255, 255, 0.12);
+  color: #f1f5f9;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-weight: 600;
+  margin-right: 3px;
+}
+
+/* Embedded Codeblock Viewport */
+.cds-mm-codeblock {
+  width: 100%;
+  height: 480px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  margin: 14px 0;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+
+/* Split View PDF + Mindmap in CDS Docs */
+.cds-docs-split-container {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.cds-docs-split-pdf {
+  flex: 1 1 50%;
+  height: 100%;
+  position: relative;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.cds-docs-split-mindmap {
+  flex: 1 1 50%;
+  height: 100%;
+  position: relative;
+  background: var(--background-primary, #0f121d);
+  overflow: hidden;
+}
+
+.cds-docs-resizer {
+  width: 5px;
+  cursor: col-resize;
+  background: rgba(255, 255, 255, 0.06);
+  transition: background 0.15s ease;
+  z-index: 40;
+}
+
+.cds-docs-resizer:hover {
+  background: #38bdf8;
+}
