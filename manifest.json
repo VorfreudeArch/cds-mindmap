@@ -1,9 +1,9 @@
 {
   "id": "cds-mindmap",
-  "name": "CDS Mappe Concettuali & Mindmap (MarkMind)",
-  "version": "1.7.0",
-  "minAppVersion": "1.4.0",
-  "description": "Suite professionale Mappe Concettuali: Risoluzione collisioni 2D a zero-sovrapposizione (calcolata con nodi tutti aperti), settori radiali proporzionali, rami tabella dedicati senza perdita di sottocapitoli, ridimensionamento stile canvas, vista organica libera e preservazione sicura della nota.",
-  "author": "Conce",
+  "name": "CDS Mindmap & Concept Tree",
+  "version": "1.7.1",
+  "minAppVersion": "1.0.0",
+  "description": "Mappa concettuale gerarchica e radiale 360° con zero-collisione a nodi aperti, tabelle ramificate dedicate, navigazione non distruttiva senza conflitti e vista organica.",
+  "author": "VorfreudeArch",
   "isDesktopOnly": false
 }

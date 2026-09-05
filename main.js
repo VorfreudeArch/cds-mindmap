@@ -47,8 +47,8 @@ class MindmapEngine {
       .replace(/\*(.*?)\*/g, '<i>$1</i>')
       .replace(/==(.*?)==/g, '<mark class="cds-mm-mark">$1</mark>')
       .replace(/`([^`]+)`/g, '<code class="cds-mm-code">$1</code>')
-      .replace(/\[\[(.*?)\|(.*?)\]\]/g, '<span class="cds-mm-wikilink" data-target="$1">🔗 $2</span>')
-      .replace(/\[\[(.*?)\]\]/g, '<span class="cds-mm-wikilink" data-target="$1">🔗 $1</span>')
+      .replace(/\[\[(.*?)\|(.*?)\]\]/g, '<span class="cds-mm-wikilink" data-target="$1">$2</span>')
+      .replace(/\[\[(.*?)\]\]/g, '<span class="cds-mm-wikilink" data-target="$1">$1</span>')
       .replace(/\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="cds-mm-ext-link">$1 ↗</a>')
       .replace(/\[\^([^\]]+)\]/g, '<sup class="cds-mm-footnote" data-footnote="$1">[$1]</sup>');
     return res;
@@ -559,7 +559,7 @@ class MindmapEngine {
     node.width = node.customWidth ? Math.max(120, node.customWidth) : w;
     node.height = node.customHeight ? Math.max(40, node.customHeight) : h;
 
-    if (node.children && node.children.length && !node.collapsed && node.layout !== 'table') {
+    if (node.children && node.children.length && node.layout !== 'table') {
       for (const child of node.children) {
         MindmapEngine.measureNode(child, detailLevel);
       }
@@ -833,7 +833,7 @@ class MindmapEngine {
   }
 
   static positionSubChildren(parent, color, direction, horizontalGap, renderedNodes, branchPaths) {
-    if (!parent.children || !parent.children.length || parent.collapsed || parent.layout === 'table') return;
+    if (!parent.children || !parent.children.length || parent.layout === 'table') return;
 
     let startY = parent.y + (parent.height / 2) - (parent.subtreeHeight / 2);
 
@@ -1751,7 +1751,7 @@ class MindmapCanvas {
       // Click delegation per wikilink, collegamenti esterni e note ipertestuali
       nodeEl.onclick = (ev) => {
         const wikiLink = ev.target.closest('.cds-mm-wikilink');
-        if (wikiLink) {
+        if (wikiLink && (ev.ctrlKey || ev.metaKey)) {
           ev.stopPropagation();
           ev.preventDefault();
           const target = wikiLink.getAttribute('data-target');
@@ -1779,7 +1779,7 @@ class MindmapCanvas {
       };
 
       nodeEl.onmousedown = (ev) => {
-        if (ev.target.closest('.cds-mm-wikilink') || ev.target.closest('a') || ev.target.closest('.cds-mm-pdf-badge') || ev.target.closest('.cds-mm-fold-btn') || ev.target.closest('.cds-mm-footnote')) {
+        if (((ev.ctrlKey || ev.metaKey) && ev.target.closest('.cds-mm-wikilink')) || ev.target.closest('a') || ev.target.closest('.cds-mm-pdf-badge') || ev.target.closest('.cds-mm-fold-btn') || ev.target.closest('.cds-mm-footnote')) {
           ev.stopPropagation();
           return;
         }
@@ -2812,16 +2812,7 @@ class CdsMindmapView extends ItemView {
       app: this.app,
       plugin: this.plugin,
       filePath: this.file.path,
-      onSaveMarkdown: async (newMd) => {
-        if (this.file) {
-          this._isInternalSaving = true;
-          clearTimeout(this._syncTimer);
-          this._syncTimer = setTimeout(async () => {
-            await this.app.vault.modify(this.file, newMd);
-            setTimeout(() => { this._isInternalSaving = false; }, 250);
-          }, 150);
-        }
-      },
+      onSaveMarkdown: null, // SICUREZZA: Mai sovrascrivere o troncare la nota master in visualizzazione mappa! Evita conflitti e corruzioni.
       onPdfJump: (pdfLink) => {
         this.plugin.jumpToPdfAnnotation(pdfLink);
       },
