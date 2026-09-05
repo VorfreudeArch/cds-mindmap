@@ -1,5 +1,5 @@
 /* ==========================================================================
-   CDS Mindmap & Mappe Concettuali (MarkMind & Enhancing Mindmap Suite v2)
+   CDS Mindmap Pro (MarkMind & Enhancing Mindmap Suite v2.2)
    ========================================================================== */
 
 .cds-mm-container {
@@ -15,9 +15,9 @@
 /* ================== UNIFIED TOP CONTROL DOCK ================== */
 .cds-mm-top-dock {
   position: absolute;
-  top: 10px;
-  left: 14px;
-  right: 14px;
+  top: 12px;
+  left: 16px;
+  right: 16px;
   z-index: 100;
   display: flex;
   align-items: center;
@@ -30,13 +30,13 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  background: rgba(22, 27, 46, 0.92);
+  background: rgba(22, 27, 46, 0.94);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 10px;
-  padding: 4px 6px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  padding: 5px 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   pointer-events: auto;
 }
 
@@ -55,19 +55,19 @@
   border: 1px solid transparent;
   color: var(--text-normal, #e2e8f0);
   cursor: pointer;
-  padding: 5px 9px;
+  padding: 5px 10px;
   border-radius: 6px;
   font-size: 0.78rem;
   font-weight: 600;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   transition: all 0.15s ease;
   white-space: nowrap;
 }
 
 .cds-mm-dock-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.09);
   color: #38bdf8;
   transform: translateY(-1px);
 }
@@ -76,14 +76,14 @@
   background: #38bdf8;
   color: #0f172a;
   font-weight: 700;
-  box-shadow: 0 2px 8px rgba(56, 189, 248, 0.35);
+  box-shadow: 0 2px 10px rgba(56, 189, 248, 0.4);
 }
 
 .cds-mm-divider {
   width: 1px;
-  height: 16px;
-  background: rgba(255, 255, 255, 0.15);
-  margin: 0 2px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.16);
+  margin: 0 3px;
 }
 
 /* ================== CANVAS VIEWPORT ================== */
@@ -121,14 +121,14 @@
 
 .cds-mm-branch-path {
   fill: none;
-  stroke-width: 2.2px;
+  stroke-width: 2.4px;
   stroke-linecap: round;
   transition: stroke 0.2s ease, stroke-width 0.2s ease;
 }
 
 .cds-mm-branch-path.is-selected {
-  stroke-width: 3.8px;
-  filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.7));
+  stroke-width: 4px;
+  filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.8));
 }
 
 /* ================== HTML NODES ================== */
@@ -149,71 +149,94 @@
   background: rgba(26, 32, 53, 0.94);
   border: 1.5px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
-  padding: 7px 12px;
+  padding: 8px 14px;
   color: var(--text-normal, #f1f5f9);
   font-size: 0.86rem;
   line-height: 1.35;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.38);
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
   white-space: normal;
   word-break: break-word;
-  max-width: 360px;
+  max-width: 380px;
 }
 
 .cds-mm-node:hover {
-  transform: translateY(-1px);
   border-color: rgba(56, 189, 248, 0.7);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.52);
 }
 
 .cds-mm-node.is-selected {
   border-color: #38bdf8 !important;
-  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.35), 0 8px 25px rgba(0, 0, 0, 0.55);
-  background: rgba(35, 45, 75, 0.98);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.4), 0 8px 28px rgba(0, 0, 0, 0.6);
+  background: rgba(33, 44, 72, 0.98);
 }
 
 /* Root Node Specific Styling */
 .cds-mm-node.is-root {
   background: linear-gradient(135deg, #1d4ed8, #2563eb);
   color: #ffffff;
-  font-size: 1.12rem;
+  font-size: 1.15rem;
   font-weight: 700;
-  border-radius: 12px;
-  padding: 12px 22px;
-  border: 2px solid rgba(255, 255, 255, 0.35);
-  box-shadow: 0 8px 28px rgba(37, 99, 235, 0.45);
+  border-radius: 14px;
+  padding: 14px 26px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 8px 32px rgba(37, 99, 235, 0.5);
+  text-align: center;
 }
 
-/* Depth Levels */
+/* Level 1 Chapter Styling */
 .cds-mm-node.level-1 {
   font-weight: 700;
-  font-size: 0.94rem;
-  background: rgba(30, 39, 66, 0.96);
+  font-size: 0.95rem;
+  background: rgba(30, 40, 68, 0.96);
+  border-width: 2px;
 }
 
-.cds-mm-node.level-2 {
-  font-weight: 600;
-  font-size: 0.88rem;
+.cds-mm-chap-badge {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #38bdf8;
+  margin-right: 5px;
+}
+
+/* Keypoint Styling */
+.cds-mm-node.is-keypoint {
+  background: rgba(22, 32, 54, 0.94);
+  border-left-width: 3px;
+  border-left-color: #10b981 !important;
+}
+
+.cds-mm-kp-badge {
+  font-size: 0.82rem;
+  margin-right: 5px;
+}
+
+.cds-mm-node-header {
+  display: flex;
+  align-items: center;
 }
 
 .cds-mm-node-title {
   font-weight: 600;
+  flex: 1;
 }
 
-/* Extended Content / Paragraph Truncation */
+/* Paragraph details */
 .cds-mm-node-body {
   font-size: 0.78rem;
   color: var(--text-muted, #94a3b8);
-  margin-top: 4px;
-  line-height: 1.3;
+  margin-top: 5px;
+  line-height: 1.32;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 4px;
 }
 
 .cds-mm-expand-toggle {
   font-size: 0.72rem;
   color: #38bdf8;
   cursor: pointer;
-  margin-top: 3px;
+  margin-top: 4px;
   font-weight: 600;
 }
 
@@ -222,9 +245,9 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-top: 5px;
-  background: rgba(239, 68, 68, 0.16);
-  border: 1px solid rgba(239, 68, 68, 0.35);
+  margin-top: 6px;
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.38);
   color: #fca5a5;
   font-size: 0.72rem;
   font-weight: 700;
@@ -236,7 +259,7 @@
 }
 
 .cds-mm-pdf-badge:hover {
-  background: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.35);
   color: #fee2e2;
   transform: scale(1.03);
 }
@@ -279,78 +302,168 @@
 .cds-mm-fold-btn.is-collapsed {
   background: #f59e0b;
   color: #0f172a;
-  padding: 0 4px;
+  padding: 0 5px;
   width: auto;
   border-radius: 10px;
   font-size: 0.68rem;
 }
 
-/* Quick Add Node (+) on Hover */
-.cds-mm-add-btn {
+/* ================== FLOATING ACTION BAR SUL NODO ================== */
+.cds-mm-floating-bar {
   position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #10b981;
-  color: #ffffff;
-  display: none;
+  z-index: 200;
+  display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: 0.8rem;
+  gap: 4px;
+  background: rgba(15, 23, 42, 0.96);
+  backdrop-filter: blur(14px);
+  border: 1.5px solid #38bdf8;
+  border-radius: 8px;
+  padding: 4px 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), 0 0 14px rgba(56, 189, 248, 0.35);
+  pointer-events: auto;
+  transform: translate(-50%, -100%);
+  white-space: nowrap;
+}
+
+.cds-mm-float-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: #e2e8f0;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 5px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  transition: all 0.15s ease;
+}
+
+.cds-mm-float-btn:hover {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.35);
+  transform: translateY(-1px);
+}
+
+/* ================== EMBEDDED TABLE NODE ================== */
+.cds-mm-node.is-table-node {
+  background: rgba(18, 25, 46, 0.98);
+  border: 2px solid #818cf8;
+  max-width: 460px;
+}
+
+.cds-mm-table-node-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  padding-bottom: 4px;
+}
+
+.cds-mm-table-node-title {
   font-weight: 700;
+  color: #818cf8;
+  font-size: 0.92rem;
+}
+
+.cds-mm-table-node-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cds-mm-mini-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #cbd5e1;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
   cursor: pointer;
   transition: all 0.15s ease;
-  z-index: 10;
 }
 
-.cds-mm-node.is-right .cds-mm-add-btn {
-  right: -26px;
+.cds-mm-mini-btn:hover {
+  background: #818cf8;
+  color: #0f172a;
 }
 
-.cds-mm-node.is-left .cds-mm-add-btn {
-  left: -26px;
+.cds-mm-node-table-embed {
+  width: 100%;
+  overflow: hidden;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.cds-mm-node:hover .cds-mm-add-btn {
-  display: flex;
+.cds-mm-node-table-embed table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
 }
 
-.cds-mm-add-btn:hover {
-  background: #059669;
-  transform: translateY(-50%) scale(1.2);
+.cds-mm-node-table-embed th {
+  background: rgba(30, 41, 69, 0.95);
+  color: #38bdf8;
+  padding: 5px 8px;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
 }
 
-/* Inline Editor Input */
+.cds-mm-node-table-embed td {
+  padding: 5px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.cds-mm-th-cell,
+.cds-mm-td-cell {
+  outline: none;
+  padding: 2px 4px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+}
+
+.cds-mm-th-cell:focus,
+.cds-mm-td-cell:focus {
+  border-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+}
+
+/* ================== INLINE EDITOR INPUT ================== */
 .cds-mm-editor-input {
   position: absolute;
   background: #1e293b;
   color: #f8fafc;
   border: 2px solid #38bdf8;
   border-radius: 8px;
-  padding: 6px 12px;
+  padding: 8px 12px;
   font-size: 0.88rem;
   line-height: 1.35;
   font-family: inherit;
   outline: none;
   z-index: 60;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
-  min-width: 160px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.65);
+  min-width: 180px;
 }
 
-/* Drag Ghost & Drop Target Line */
+/* Drag Ghost & Drop Target Halo */
 .cds-mm-node.is-ghost {
-  opacity: 0.35;
+  opacity: 0.55;
   border-style: dashed;
+  transform: scale(1.03);
+  box-shadow: 0 10px 30px rgba(56, 189, 248, 0.4);
 }
 
 .cds-mm-node.is-drop-target {
   border-color: #10b981 !important;
-  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.4) !important;
+  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.45) !important;
 }
 
-/* ================== TABLE / MATRIX VIEW ================== */
+/* ================== TABLE / MATRIX VIEW GLOBALE ================== */
 .cds-mm-table-container {
   position: absolute;
   top: 60px;
@@ -406,7 +519,7 @@
   background: rgba(56, 189, 248, 0.1);
 }
 
-/* ================== OUTLINE VIEW ================== */
+/* ================== OUTLINE VIEW GLOBALE ================== */
 .cds-mm-outline-container {
   position: absolute;
   top: 60px;
@@ -458,7 +571,7 @@
 /* ================== CODEBLOCK EMBED ================== */
 .cds-mm-codeblock {
   width: 100%;
-  height: 520px;
+  height: 540px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   overflow: hidden;
