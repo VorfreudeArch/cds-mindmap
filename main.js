@@ -4310,14 +4310,21 @@ class MindmapCanvas {
       new Notice(`🗺️ Mappa esportata in Obsidian Canvas: ${canvasPath}`);
       const leaf = await this.app.workspace.openLinkText(canvasPath, '', true);
 
-      // Risoluzione visibilità immediata (Zero Clic) sulla scheda aperta
+      // Risoluzione visibilità immediata (Zero Clic) sulla scheda aperta in multi-fase
       setTimeout(() => {
         const canvasLeaves = this.app.workspace.getLeavesOfType('canvas');
         const targetLeaf = canvasLeaves.find(l => l.view && l.view.file && l.view.file.path === canvasPath) || this.app.workspace.activeLeaf;
         if (targetLeaf && this.plugin && typeof this.plugin.enhanceCanvasLeaf === 'function') {
           this.plugin.enhanceCanvasLeaf(targetLeaf);
         }
-      }, 150);
+      }, 50);
+      setTimeout(() => {
+        const canvasLeaves = this.app.workspace.getLeavesOfType('canvas');
+        const targetLeaf = canvasLeaves.find(l => l.view && l.view.file && l.view.file.path === canvasPath) || this.app.workspace.activeLeaf;
+        if (targetLeaf && this.plugin && typeof this.plugin.enhanceCanvasLeaf === 'function') {
+          this.plugin.enhanceCanvasLeaf(targetLeaf);
+        }
+      }, 250);
     } catch(err) {
       console.error('[CDS Mindmap] Error opening in Obsidian Canvas:', err);
       new Notice(`⚠️ Errore apertura Canvas: ${err.message}`);
@@ -5922,9 +5929,30 @@ module.exports = class CdsMindmapPlugin extends Plugin {
     this._syncLocks = new Set();
     this._syncDebounceTimers = new Map();
 
-    console.log('Loading CDS Mindmap Suite v1.8.2 (Bidirectional Canvas Sync & Zero-Click Text Visibility)');
+    console.log('Loading CDS Mindmap Suite v1.8.3 (Permanent Zero-Click Canvas Text Visibility & Prototype Patch)');
 
     this.registerView(VIEW_TYPE_MINDMAP, (leaf) => new CdsMindmapView(leaf, this));
+
+    // Intercetta ViewRegistry per agganciare e patchare istantaneamente qualsiasi CanvasView all'atto della creazione
+    try {
+      if (this.app.viewRegistry && this.app.viewRegistry.viewByType) {
+        const origCanvasCreator = this.app.viewRegistry.viewByType['canvas'];
+        if (typeof origCanvasCreator === 'function' && !origCanvasCreator._cdsWrapped) {
+          const self = this;
+          const wrappedCreator = function(leaf) {
+            const view = origCanvasCreator(leaf);
+            if (view && view.canvas) {
+              self.patchCanvasPrototypes(view.canvas);
+            }
+            return view;
+          };
+          wrappedCreator._cdsWrapped = true;
+          this.app.viewRegistry.viewByType['canvas'] = wrappedCreator;
+        }
+      }
+    } catch(ve) {
+      console.warn('[CDS Mindmap] viewRegistry hook notice:', ve);
+    }
 
     // Ascolto layout ed eventi leaf per garantire la visibilità del testo Canvas a qualsiasi zoom (Zero Clic)
     this.registerEvent(
@@ -5947,7 +5975,11 @@ module.exports = class CdsMindmapPlugin extends Plugin {
       })
     );
 
-    setTimeout(() => this.enhanceAllCanvasViews(), 600);
+    // Patch immediato su tutte le schede Canvas esistenti
+    this.enhanceAllCanvasViews();
+    setTimeout(() => this.enhanceAllCanvasViews(), 150);
+    setTimeout(() => this.enhanceAllCanvasViews(), 500);
+    setTimeout(() => this.enhanceAllCanvasViews(), 1200);
 
     this.addRibbonIcon('git-fork', 'CDS Mindmap: Apri come Mappa Concettuale', () => {
       this.openActiveNoteAsMindmap();
@@ -5976,6 +6008,15 @@ module.exports = class CdsMindmapPlugin extends Plugin {
           return true;
         }
         return false;
+      }
+    });
+
+    this.addCommand({
+      id: 'force-canvas-zero-click-visibility',
+      name: 'Canvas: Forza visibilità immediata di tutti i testi (Zero Clic)',
+      callback: () => {
+        this.enhanceAllCanvasViews();
+        new Notice('✨ Visibilità testo Zero-Clic forzata su tutti i Canvas!');
       }
     });
 
@@ -6054,8 +6095,166 @@ module.exports = class CdsMindmapPlugin extends Plugin {
   }
 
   // ==========================================================================
-  // METODI v1.8.2: RISOLUZIONE VISIBILITÀ TESTO CANVAS (ZERO CLIC)
+  // METODI v1.8.3: RISOLUZIONE VISIBILITÀ TESTO CANVAS ZERO-CLIC (PROTOTYPE PATCH)
   // ==========================================================================
+  patchCanvasPrototypes(canvas) {
+    if (!canvas) return;
+    const self = this;
+
+    // 1. PATCH GLOBALE SUL PROTOTIPO DI CANVAS
+    const canvasProto = Object.getPrototypeOf(canvas);
+    if (canvasProto && !canvasProto._cdsCanvasPatched) {
+      canvasProto._cdsCanvasPatched = true;
+
+      // Getter zoomBreakpoint permanente: canvas.zoom > zoomBreakpoint SEMPRE VERO a qualunque zoom
+      try {
+        Object.defineProperty(canvasProto, 'zoomBreakpoint', {
+          get: () => -999999,
+          set: () => {},
+          configurable: true
+        });
+      } catch(e) {}
+
+      // Intercetta importData per montare i nodi istantaneamente al caricamento di qualsiasi file .canvas
+      const origImport = canvasProto.importData;
+      if (typeof origImport === 'function') {
+        canvasProto.importData = function(data, clear) {
+          const res = origImport.apply(this, arguments);
+          try {
+            if (this.nodes) {
+              this.nodes.forEach(n => {
+                n.alwaysKeepLoaded = true;
+                if (!n.isContentMounted && typeof n.mountContent === 'function') {
+                  n.mountContent();
+                }
+                self.patchNodePrototypeChain(n);
+              });
+            }
+          } catch(err) {
+            console.error('[CDS Mindmap] importData hook error:', err);
+          }
+          return res;
+        };
+      }
+
+      // Intercetta addNode per catturare QUALSIASI nodo creato o aggiunto dinamicamente
+      const origAddNode = canvasProto.addNode;
+      if (typeof origAddNode === 'function') {
+        canvasProto.addNode = function(node) {
+          const res = origAddNode.apply(this, arguments);
+          if (node) {
+            node.alwaysKeepLoaded = true;
+            if (!node.isContentMounted && typeof node.mountContent === 'function') {
+              node.mountContent();
+            }
+            self.patchNodePrototypeChain(node);
+          }
+          return res;
+        };
+      }
+
+      // Intercetta createTextNode
+      const origCreateText = canvasProto.createTextNode;
+      if (typeof origCreateText === 'function') {
+        canvasProto.createTextNode = function(...args) {
+          const node = origCreateText.apply(this, args);
+          if (node) {
+            node.alwaysKeepLoaded = true;
+            if (!node.isContentMounted && typeof node.mountContent === 'function') {
+              node.mountContent();
+            }
+            self.patchNodePrototypeChain(node);
+          }
+          return node;
+        };
+      }
+    }
+
+    // Anche sull'istanza specifica del canvas
+    try {
+      Object.defineProperty(canvas, 'zoomBreakpoint', {
+        get: () => -999999,
+        set: () => {},
+        configurable: true
+      });
+    } catch(e) {}
+
+    // Monta ed applica sui nodi già presenti in memoria
+    if (canvas.nodes) {
+      canvas.nodes.forEach(node => {
+        node.alwaysKeepLoaded = true;
+        if (!node.isContentMounted && typeof node.mountContent === 'function') {
+          node.mountContent();
+        }
+        this.patchNodePrototypeChain(node);
+      });
+    }
+  }
+
+  patchNodePrototypeChain(node) {
+    if (!node) return;
+    let curr = Object.getPrototypeOf(node);
+    while (curr && curr !== Object.prototype) {
+      if (curr._cdsPatched) {
+        curr = Object.getPrototypeOf(curr);
+        continue;
+      }
+      curr._cdsPatched = true;
+
+      // Neutralizza unmountContent: MAI smontare il contenuto o mostrare placeholder
+      if (typeof curr.unmountContent === 'function') {
+        curr.unmountContent = function() {
+          // Contenuto permanentemente preservato in DOM
+        };
+      }
+
+      // Overwrite updateBreakpoint: chiama SEMPRE mountContent anziché unmountContent
+      if (typeof curr.updateBreakpoint === 'function') {
+        curr.updateBreakpoint = function(t) {
+          this.alwaysKeepLoaded = true;
+          if (typeof this.mountContent === 'function' && !this.isContentMounted) {
+            this.mountContent();
+          }
+        };
+      }
+
+      // Initialize: garantisce alwaysKeepLoaded = true e monta subito
+      if (typeof curr.initialize === 'function') {
+        const origInit = curr.initialize;
+        curr.initialize = function() {
+          this.alwaysKeepLoaded = true;
+          origInit.apply(this, arguments);
+          if (typeof this.mountContent === 'function' && !this.isContentMounted) {
+            this.mountContent();
+          }
+        };
+      }
+
+      // Render: garantisce che il child sia istanziato e montato
+      if (typeof curr.render === 'function') {
+        const origRender = curr.render;
+        curr.render = function() {
+          this.alwaysKeepLoaded = true;
+          origRender.apply(this, arguments);
+          if (typeof this.mountContent === 'function' && !this.isContentMounted) {
+            this.mountContent();
+          }
+        };
+      }
+
+      // Proprietà alwaysKeepLoaded sempre true sul prototipo
+      try {
+        Object.defineProperty(curr, 'alwaysKeepLoaded', {
+          get: () => true,
+          set: () => {},
+          configurable: true
+        });
+      } catch(e) {}
+
+      curr = Object.getPrototypeOf(curr);
+    }
+  }
+
   enhanceAllCanvasViews() {
     const leaves = this.app.workspace.getLeavesOfType('canvas');
     leaves.forEach(leaf => this.enhanceCanvasLeaf(leaf));
@@ -6066,12 +6265,8 @@ module.exports = class CdsMindmapPlugin extends Plugin {
     const canvas = leaf.view.canvas;
     if (!canvas) return;
 
-    // 1. Modifica breakpoint per disattivare la modalità segnaposto su tutta la tela
-    if (canvas.options) {
-      canvas.options.zoomBreakpoint = 10;
-    }
+    this.patchCanvasPrototypes(canvas);
 
-    // 2. Forza alwaysKeepLoaded = true e monta permanentemente il contenuto di ogni nodo
     if (canvas.nodes) {
       canvas.nodes.forEach(node => {
         node.alwaysKeepLoaded = true;
@@ -6082,42 +6277,6 @@ module.exports = class CdsMindmapPlugin extends Plugin {
           node.updateBreakpoint(true);
         }
       });
-    }
-
-    // 3. Hook attivo per qualsiasi nuovo nodo o variazione della vista
-    if (!canvas._cdsHooked) {
-      canvas._cdsHooked = true;
-
-      if (typeof canvas.createNode === 'function') {
-        const origCreateNode = canvas.createNode;
-        canvas.createNode = function(...args) {
-          const node = origCreateNode.apply(this, args);
-          if (node) {
-            node.alwaysKeepLoaded = true;
-            setTimeout(() => {
-              if (typeof node.mountContent === 'function' && !node.isContentMounted) {
-                node.mountContent();
-              }
-            }, 10);
-          }
-          return node;
-        };
-      }
-
-      if (typeof canvas.markViewportChanged === 'function') {
-        const origMark = canvas.markViewportChanged;
-        canvas.markViewportChanged = function(...args) {
-          origMark.apply(this, args);
-          if (this.nodes) {
-            this.nodes.forEach(n => {
-              n.alwaysKeepLoaded = true;
-              if (!n.isContentMounted && typeof n.mountContent === 'function') {
-                n.mountContent();
-              }
-            });
-          }
-        };
-      }
     }
   }
 
