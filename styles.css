@@ -179,8 +179,11 @@
   cursor: pointer;
   transition: box-shadow 0.15s ease, border-color 0.15s ease;
   white-space: normal;
-  word-break: break-word;
-  max-width: 380px;
+  word-break: normal;
+  overflow-wrap: break-word;
+  min-width: 140px;
+  min-height: 44px;
+  max-width: 420px;
 }
 
 .cds-mm-node:hover {
@@ -205,7 +208,11 @@
   border: 2px solid rgba(255, 255, 255, 0.45);
   box-shadow: 0 10px 36px rgba(37, 99, 235, 0.55), 0 0 20px rgba(56, 189, 248, 0.3);
   text-align: center;
-}
+
+  min-width: 260px;
+  word-break: keep-all;
+  white-space: normal;
+  overflow-wrap: normal;}
 
 .cds-mm-root-badge {
   font-size: 0.72rem;
@@ -776,4 +783,281 @@
   overflow: hidden;
   margin: 16px 0;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+}
+
+
+/* ==========================================================================
+   CDS Mindmap Pro v1.4.0 (Live Sheet Frame, Title Block, Pro Sized Modal)
+   ========================================================================== */
+
+/* On-Canvas Sheet Overlay (Anteprima Stampa sul Canvas) */
+.cds-mm-sheet-overlay {
+  position: absolute;
+  pointer-events: none;
+  border: 2px dashed #38bdf8;
+  box-shadow: 0 0 0 9999px rgba(10, 15, 26, 0.48), 0 12px 50px rgba(0, 0, 0, 0.7);
+  z-index: 5;
+  border-radius: 6px;
+  background: rgba(56, 189, 248, 0.015);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.cds-mm-sheet-banner {
+  position: absolute;
+  top: 14px;
+  left: 20px;
+  right: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #38bdf8;
+  letter-spacing: 0.5px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.cds-mm-sheet-cartiglio {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  width: 320px;
+  border: 1.5px solid #38bdf8;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(12px);
+  border-radius: 8px;
+  padding: 12px 16px;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.6);
+}
+
+.cds-mm-cart-title {
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: #38bdf8;
+  letter-spacing: 0.4px;
+  margin-bottom: 3px;
+}
+
+.cds-mm-cart-sub {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #f8fafc;
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cds-mm-cart-meta {
+  display: flex;
+  justify-content: space-between;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  padding-top: 6px;
+  font-size: 0.72rem;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.cds-mm-sheet-dock-select {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #38bdf8;
+  border-radius: 5px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 3px 6px;
+  outline: none;
+  cursor: pointer;
+}
+
+/* ================== EXPORT MODAL PRO v1.4.0 ================== */
+.modal.cds-mm-modal-window,
+.modal.cds-mm-export-modal-window {
+  width: 94vw !important;
+  max-width: 1350px !important;
+  height: 90vh !important;
+  max-height: 940px !important;
+  padding: 0 !important;
+  background: #0f172a !important;
+  border: 1.5px solid rgba(56, 189, 248, 0.35) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.85) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+.cds-mm-export-modal {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  padding: 20px 24px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.cds-mm-export-title {
+  margin: 0 0 16px 0;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #f8fafc;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.cds-mm-export-layout {
+  display: flex;
+  flex: 1;
+  gap: 24px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.cds-mm-export-sidebar {
+  width: 350px;
+  min-width: 330px;
+  max-width: 380px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 12px;
+}
+
+.cds-mm-export-label {
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+.cds-mm-export-select,
+.cds-mm-export-input {
+  background: #1e293b;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #f1f5f9;
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 0.85rem;
+  outline: none;
+  transition: border-color 0.15s ease;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.cds-mm-export-select:focus,
+.cds-mm-export-input:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25);
+}
+
+.cds-mm-export-cartiglio-box {
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cds-mm-export-cartiglio-box input[type='checkbox'] {
+  cursor: pointer;
+  accent-color: #38bdf8;
+  width: 16px;
+  height: 16px;
+}
+
+.cds-mm-export-cartiglio-box label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #e2e8f0;
+  cursor: pointer;
+}
+
+.cds-mm-btn-primary {
+  background: linear-gradient(135deg, #0284c7, #2563eb);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 18px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
+  transition: all 0.2s ease;
+}
+
+.cds-mm-btn-primary:hover {
+  background: linear-gradient(135deg, #38bdf8, #1d4ed8);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(56, 189, 248, 0.5);
+}
+
+.cds-mm-export-preview-box {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 20px;
+  overflow: auto;
+  position: relative;
+  min-height: 400px;
+}
+
+.cds-mm-export-canvas-preview {
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.7);
+  border-radius: 6px;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/* Rich Markdown Spans */
+.cds-mm-mark {
+  background: rgba(250, 204, 21, 0.25);
+  color: #fef08a;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.cds-mm-wikilink {
+  color: #38bdf8;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cds-mm-wikilink:hover {
+  text-decoration: underline;
+}
+
+.cds-mm-ext-link {
+  color: #a78bfa;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.cds-mm-ext-link:hover {
+  text-decoration: underline;
 }

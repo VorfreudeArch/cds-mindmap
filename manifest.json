@@ -1,9 +1,9 @@
 {
   "id": "cds-mindmap",
   "name": "CDS Mappe Concettuali & Mindmap (MarkMind)",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "minAppVersion": "1.4.0",
-  "description": "Suite avanzata per Mappe Concettuali con Rich Markdown, Fit-All, Minimap, Esportazione A0-A6 e Sync Note.",
+  "description": "Suite professionale Mappe Concettuali: anteprima foglio ISO A0-A6 live su canvas, orientamento corretto, esportazione vettoriale SVG, cartiglio & timbro studio, modal HD spaziosa.",
   "author": "Conce",
   "isDesktopOnly": false
 }
