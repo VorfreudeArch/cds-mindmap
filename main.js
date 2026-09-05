@@ -604,8 +604,8 @@ class MindmapEngine {
       h = Math.max(76, rootWrapped * 32 + 40);
     }
 
-    node.width = node.customWidth ? Math.max(120, node.customWidth) : w;
-    node.height = node.customHeight ? Math.max(48, node.customHeight) : h;
+    node.width = node.customWidth ? Math.max(80, node.customWidth) : w;
+    node.height = node.customHeight ? Math.max(36, node.customHeight) : h;
 
     if (node.children && node.children.length && node.layout !== 'table') {
       for (const child of node.children) {
@@ -1901,13 +1901,53 @@ class MindmapCanvas {
 
     // Eventi Canvas
     this.viewport.addEventListener('mousedown', (e) => this.onMouseDown(e));
+    this.viewport.addEventListener('dblclick', (e) => {
+      if (e.target.closest('.cds-mm-node') || e.target.closest('.cds-mm-top-dock') || e.target.closest('.cds-mm-floating-bar') || e.target.closest('.cds-mm-minimap')) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const rect = this.viewport.getBoundingClientRect();
+      const canvasX = Math.round((e.clientX - rect.left - this.panX) / this.zoom);
+      const canvasY = Math.round((e.clientY - rect.top - this.panY) / this.zoom);
+
+      this.createNodeAtCoordinates(canvasX, canvasY);
+    });
+
     window.addEventListener('mousemove', (e) => this.onMouseMove(e));
     window.addEventListener('mouseup', (e) => this.onMouseUp(e));
     this.viewport.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
 
+    // Scroll orizzontale dock con rotellina del mouse
+    this.topDock.addEventListener('wheel', (e) => {
+      if (e.deltaY !== 0) {
+        this.topDock.scrollLeft += e.deltaY;
+        e.preventDefault();
+      }
+    }, { passive: false });
+
     // Tastiera
     this.container.setAttribute('tabindex', '0');
     this.container.addEventListener('keydown', (e) => this.onKeyDown(e));
+
+    // ResizeObserver per responsività dinamica dock superiore
+    if (typeof ResizeObserver !== 'undefined') {
+      this.dockResizeObserver = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const w = entry.contentRect.width;
+          if (w < 1180) {
+            this.topDock.classList.add('is-narrow');
+          } else {
+            this.topDock.classList.remove('is-narrow');
+          }
+          if (w < 880) {
+            this.topDock.classList.add('is-compact');
+          } else {
+            this.topDock.classList.remove('is-compact');
+          }
+        }
+      });
+      this.dockResizeObserver.observe(this.container);
+    }
   }
 
   renderTopDock() {
@@ -2433,27 +2473,38 @@ class MindmapCanvas {
   initNodeResize(node, nodeEl, ev) {
     const startX = ev.clientX;
     const startY = ev.clientY;
-    const startW = node.width;
-    const startH = node.height;
+    const startW = node.width || (nodeEl ? nodeEl.offsetWidth : 180);
+    const startH = node.height || (nodeEl ? nodeEl.offsetHeight : 54);
+
+    if (nodeEl) {
+      nodeEl.style.maxWidth = 'none';
+      nodeEl.style.minWidth = '60px';
+    }
 
     const onMove = (moveEv) => {
       const dw = (moveEv.clientX - startX) / this.zoom;
       const dh = (moveEv.clientY - startY) / this.zoom;
-      const newW = Math.max(120, Math.round(startW + dw));
-      const newH = Math.max(40, Math.round(startH + dh));
+      const newW = Math.max(80, Math.round(startW + dw));
+      const newH = Math.max(36, Math.round(startH + dh));
 
       node.width = newW;
       node.height = newH;
       node.customWidth = newW;
       node.customHeight = newH;
 
-      nodeEl.style.width = `${newW}px`;
-      nodeEl.style.height = `${newH}px`;
+      if (nodeEl) {
+        nodeEl.style.width = `${newW}px`;
+        nodeEl.style.height = `${newH}px`;
+      }
 
       const raw = this.findRawNode(node.id);
       if (raw) {
         raw.customWidth = newW;
         raw.customHeight = newH;
+        if (raw.customX === undefined) {
+          raw.customX = node.x;
+          raw.customY = node.y;
+        }
       }
 
       this.updateBranchPathsRealtime();
@@ -2613,9 +2664,16 @@ class MindmapCanvas {
     const nodeX = parseFloat(selectedEl.style.left) || 0;
     const nodeY = parseFloat(selectedEl.style.top) || 0;
     const nodeW = parseFloat(selectedEl.style.width) || 160;
+    const nodeH = parseFloat(selectedEl.style.height) || 48;
 
     this.floatingBar.style.left = `${nodeX + (nodeW / 2)}px`;
-    this.floatingBar.style.top = `${nodeY - 14}px`;
+    if (nodeY < 75) {
+      this.floatingBar.style.top = `${nodeY + nodeH + 12}px`;
+      this.floatingBar.style.transform = 'translate(-50%, 0)';
+    } else {
+      this.floatingBar.style.top = `${nodeY - 14}px`;
+      this.floatingBar.style.transform = 'translate(-50%, -100%)';
+    }
   }
 
     promptInsertImage(node) {
@@ -3032,10 +3090,10 @@ class MindmapCanvas {
     const collapsed = [];
 
     const walk = (n) => {
-      if (n.customX !== undefined && n.customY !== undefined) {
+      if (n.customX !== undefined || n.customY !== undefined || n.customWidth !== undefined || n.customHeight !== undefined || n.layout || n.priority || n.customColor) {
         positions[n.id] = {
-          x: Math.round(n.customX),
-          y: Math.round(n.customY),
+          x: Math.round(n.customX !== undefined ? n.customX : (n.x || 0)),
+          y: Math.round(n.customY !== undefined ? n.customY : (n.y || 0)),
           customWidth: n.customWidth,
           customHeight: n.customHeight,
           layout: n.layout,
@@ -3131,6 +3189,22 @@ class MindmapCanvas {
     this.triggerSave();
   }
 
+  deselectAll() {
+    if (!this.selectedNodeId) return;
+    this.selectedNodeId = null;
+    this.floatingBar.style.display = 'none';
+    this.updateHierarchyGlow(null);
+    this.nodesLayer.querySelectorAll('.cds-mm-node.is-selected').forEach(el => el.classList.remove('is-selected'));
+    
+    // Rimuovi indicatori di flash temporanei nell'editor Markdown
+    const flashes = document.querySelectorAll('.cds-mm-editor-flash');
+    flashes.forEach(f => f.remove());
+
+    if (this.options.onDeselect) {
+      this.options.onDeselect();
+    }
+  }
+
   selectNode(nodeId) {
     this.selectedNodeId = nodeId;
     this.render();
@@ -3158,13 +3232,62 @@ class MindmapCanvas {
     return null;
   }
 
-  addChildToSelected(defaultText = 'Nuovo Concetto', pdfLink = null) {
-    const parent = this.findRawNode(this.selectedNodeId) || this.rawRootNode;
+  createNodeAtCoordinates(canvasX, canvasY, defaultText = 'Nuovo Concetto') {
+    const parent = (this.selectedNodeId && this.selectedNodeId !== 'root')
+      ? (this.findRawNode(this.selectedNodeId) || this.rawRootNode)
+      : this.rawRootNode;
+
+    if (!parent.children) parent.children = [];
     parent.collapsed = false;
 
     const childIdx = parent.children.length;
-    const parentPath = parent.id;
-    const newId = MindmapEngine.generateDeterministicId(parentPath, childIdx, defaultText);
+    const parentPath = parent.id || 'root';
+    const timestamp = Date.now().toString(36).slice(-4);
+    const newId = MindmapEngine.generateDeterministicId(parentPath, childIdx, defaultText) + '_' + timestamp;
+
+    const newNode = {
+      id: newId,
+      text: defaultText,
+      depth: (parent.depth || 0) + 1,
+      type: parent.depth === 0 ? 'heading' : 'keypoint',
+      children: [],
+      collapsed: false,
+      customX: canvasX,
+      customY: canvasY,
+      x: canvasX,
+      y: canvasY,
+      layout: 'default',
+      bodyText: ''
+    };
+
+    parent.children.push(newNode);
+    this.selectedNodeId = newNode.id;
+    this.saveLayoutMemory();
+    this.render();
+
+    setTimeout(() => {
+      const nodeEl = this.nodesLayer.querySelector(`[data-node-id="${newNode.id}"]`);
+      if (nodeEl) {
+        this.startEditing(newNode, nodeEl);
+      }
+    }, 60);
+  }
+
+  addChildToSelected(defaultText = 'Nuovo Concetto', pdfLink = null) {
+    let parent = null;
+    if (this.selectedNodeId) {
+      parent = this.findRawNode(this.selectedNodeId);
+    }
+    if (!parent) {
+      parent = this.rawRootNode;
+    }
+    parent.collapsed = false;
+    if (!parent.children) parent.children = [];
+
+    const childIdx = parent.children.length;
+    const parentPath = parent.id || 'root';
+    const timestamp = Date.now().toString(36).slice(-4);
+    const newId = MindmapEngine.generateDeterministicId(parentPath, childIdx, defaultText) + '_' + timestamp;
 
     const newNode = {
       id: newId,
@@ -3180,32 +3303,39 @@ class MindmapCanvas {
 
     parent.children.push(newNode);
     this.selectedNodeId = newNode.id;
+    this.saveLayoutMemory();
     this.render();
-    this.triggerSave();
 
     setTimeout(() => {
       const nodeEl = this.nodesLayer.querySelector(`[data-node-id="${newNode.id}"]`);
-      if (nodeEl) this.startEditing(newNode, nodeEl);
+      if (nodeEl) {
+        this.startEditing(newNode, nodeEl);
+      }
     }, 60);
   }
 
-  addSiblingToSelected(defaultText = 'Nuovo Ramo') {
-    if (this.selectedNodeId === 'root') {
+  addSiblingToSelected(defaultText = 'Nuovo Concetto') {
+    if (!this.selectedNodeId || this.selectedNodeId === 'root') {
       this.addChildToSelected(defaultText);
       return;
     }
+
     const parent = this.findParent(this.selectedNodeId);
-    if (!parent) return;
+    if (!parent) {
+      this.addChildToSelected(defaultText);
+      return;
+    }
 
     const idx = parent.children.findIndex(c => c.id === this.selectedNodeId);
+    const parentPath = parent.id || 'root';
     const childIdx = parent.children.length;
-    const parentPath = parent.id;
-    const newId = MindmapEngine.generateDeterministicId(parentPath, childIdx, defaultText);
+    const timestamp = Date.now().toString(36).slice(-4);
+    const newId = MindmapEngine.generateDeterministicId(parentPath, childIdx, defaultText) + '_' + timestamp;
 
     const newNode = {
       id: newId,
       text: defaultText,
-      depth: parent.depth + 1,
+      depth: parent.depth !== undefined ? parent.depth + 1 : 1,
       type: parent.depth === 0 ? 'heading' : 'keypoint',
       children: [],
       collapsed: false,
@@ -3213,19 +3343,26 @@ class MindmapCanvas {
       layout: 'default'
     };
 
-    parent.children.splice(idx + 1, 0, newNode);
+    if (idx !== -1) {
+      parent.children.splice(idx + 1, 0, newNode);
+    } else {
+      parent.children.push(newNode);
+    }
+
     this.selectedNodeId = newNode.id;
+    this.saveLayoutMemory();
     this.render();
-    this.triggerSave();
 
     setTimeout(() => {
       const nodeEl = this.nodesLayer.querySelector(`[data-node-id="${newNode.id}"]`);
-      if (nodeEl) this.startEditing(newNode, nodeEl);
+      if (nodeEl) {
+        this.startEditing(newNode, nodeEl);
+      }
     }, 60);
   }
 
   deleteSelected() {
-    if (this.selectedNodeId === 'root') {
+    if (!this.selectedNodeId || this.selectedNodeId === 'root') {
       new Notice('La radice della mappa non può essere eliminata.');
       return;
     }
@@ -3236,6 +3373,7 @@ class MindmapCanvas {
     if (idx !== -1) {
       parent.children.splice(idx, 1);
       this.selectedNodeId = parent.id;
+      this.saveLayoutMemory();
       this.render();
       this.triggerSave();
     }
@@ -3244,17 +3382,23 @@ class MindmapCanvas {
   startEditing(node, nodeEl) {
     if (this.editingInput) return;
 
-    const titleEl = nodeEl.querySelector('.cds-mm-node-title') || nodeEl;
-    titleEl.style.visibility = 'hidden';
+    const rendered = (this.renderedNodes && this.renderedNodes.find(n => n.id === node.id)) || node;
+    const titleEl = nodeEl ? (nodeEl.querySelector('.cds-mm-node-title') || nodeEl) : null;
+    if (titleEl) titleEl.style.visibility = 'hidden';
 
     const input = document.createElement('textarea');
     input.className = 'cds-mm-editor-input';
-    input.value = node.text;
+    input.value = node.text || '';
 
-    input.style.left = `${node.x}px`;
-    input.style.top = `${node.y}px`;
-    input.style.width = `${Math.max(node.width, 220)}px`;
-    input.style.height = `${Math.max(node.height, 60)}px`;
+    const posX = rendered.x !== undefined ? rendered.x : (nodeEl ? parseFloat(nodeEl.style.left) || 0 : 0);
+    const posY = rendered.y !== undefined ? rendered.y : (nodeEl ? parseFloat(nodeEl.style.top) || 0 : 0);
+    const posW = rendered.width !== undefined ? rendered.width : (nodeEl ? parseFloat(nodeEl.style.width) || 200 : 200);
+    const posH = rendered.height !== undefined ? rendered.height : (nodeEl ? parseFloat(nodeEl.style.height) || 50 : 50);
+
+    input.style.left = `${posX}px`;
+    input.style.top = `${posY}px`;
+    input.style.width = `${Math.max(posW, 180)}px`;
+    input.style.height = `${Math.max(posH, 48)}px`;
 
     this.nodesLayer.appendChild(input);
     input.focus();
@@ -3271,7 +3415,8 @@ class MindmapCanvas {
       }
       this.nodesLayer.removeChild(input);
       this.editingInput = null;
-      titleEl.style.visibility = 'visible';
+      if (titleEl) titleEl.style.visibility = 'visible';
+      this.saveLayoutMemory();
       this.render();
       this.triggerSave();
     };
@@ -3282,16 +3427,31 @@ class MindmapCanvas {
         ev.preventDefault();
         commit();
       } else if (ev.key === 'Escape') {
+        ev.preventDefault();
         this.nodesLayer.removeChild(input);
         this.editingInput = null;
-        titleEl.style.visibility = 'visible';
+        if (titleEl) titleEl.style.visibility = 'visible';
         this.render();
       }
     };
   }
 
   onKeyDown(e) {
-    if (this.editingInput) return;
+    if (this.editingInput) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        this.nodesLayer.removeChild(this.editingInput);
+        this.editingInput = null;
+        this.render();
+      }
+      return;
+    }
+
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      this.deselectAll();
+      return;
+    }
 
     if (e.code === 'Space' && this.isStudyMode && this.selectedNodeId && this.selectedNodeId !== 'root') {
       e.preventDefault();
@@ -3326,6 +3486,12 @@ class MindmapCanvas {
 
   onMouseDown(e) {
     if (e.target.closest('.cds-mm-node') || e.target.closest('.cds-mm-top-dock') || e.target.closest('.cds-mm-floating-bar') || e.target.closest('.cds-mm-minimap')) return;
+    
+    // Cliccando sullo sfondo vuoto della mappa deseleziona il nodo ed esce dalla modalità evidenziazione
+    if (this.selectedNodeId) {
+      this.deselectAll();
+    }
+
     this.isDraggingCanvas = true;
     this.viewport.addClass('is-dragging');
     this.dragStart = { x: e.clientX - this.panX, y: e.clientY - this.panY };

@@ -1,9 +1,9 @@
 {
   "id": "cds-mindmap",
   "name": "CDS Mindmap & Concept Tree",
-  "version": "1.7.4",
+  "version": "1.7.5",
   "minAppVersion": "1.0.0",
-  "description": "Suite studio e architettura: connettori curvi/ortogonali CAD, breadcrumb glow gerarchico, modalità ripasso esame orale (flashcard), priorità studio (🔴🟡🟢) e fascicolo multipagina PDF.",
+  "description": "Suite studio e architettura: navigazione nodi fluida (deselezione Esc/click-out), doppio click per generare concetti, ridimensionamento manuale libero, connettori curvi/ortogonali CAD, ripasso esame e top dock responsiva.",
   "author": "VorfreudeArch",
   "isDesktopOnly": false
 }
