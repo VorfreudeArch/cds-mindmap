@@ -140,7 +140,7 @@ class MindmapEngine {
 
     const lines = content.split(/\r?\n/);
 
-    // ANALISI PRELIMINARE: Riconoscimento Document Title vs Capitolo 1
+    // 1. Scansione preliminare H1
     const h1List = [];
     for (let idx = 0; idx < lines.length; idx++) {
       const m = lines[idx].match(/^#\s+(.*)$/);
@@ -148,20 +148,20 @@ class MindmapEngine {
     }
 
     let docTitle = fallbackTitle;
-    let skipFirstH1AsDocTitle = false;
+    let skipFirstH1 = false;
+    const cleanFn = (fallbackTitle || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
-    if (h1List.length === 1) {
-      const isChapterLike = /(?:capitolo|chapter|cap\.|sezione|modulo|\b[ivxlcdm]+\b|\b\d+\b)/i.test(h1List[0].text);
-      if (!isChapterLike) {
-        docTitle = h1List[0].text;
-        skipFirstH1AsDocTitle = true;
-      }
-    } else if (h1List.length > 1) {
-      const cleanFn = (fallbackTitle || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (h1List.length >= 1) {
       const cleanFirstH1 = h1List[0].text.toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (cleanFn && cleanFirstH1 === cleanFn) {
+      if (cleanFirstH1 === cleanFn || cleanFirstH1.includes(cleanFn) || cleanFn.includes(cleanFirstH1)) {
         docTitle = h1List[0].text;
-        skipFirstH1AsDocTitle = true;
+        skipFirstH1 = true;
+      } else if (h1List.length === 1) {
+        const isChapterLike = /(?:capitolo|chapter|cap\.|sezione|modulo|\b[ivxlcdm]+\b)/i.test(h1List[0].text);
+        if (!isChapterLike) {
+          docTitle = h1List[0].text;
+          skipFirstH1 = true;
+        }
       }
     }
 
@@ -183,65 +183,66 @@ class MindmapEngine {
 
     const fileCache = filePath ? CUSTOM_POSITIONS_CACHE.get(filePath) || {} : {};
 
-    // Buffer per box drawing tables
-    let boxTableBuffer = null;
+    let activeTable = null; // Buffer per tabelle
 
     for (let i = 0; i < lines.length; i++) {
       const lineNum = lineOffset + i;
       const line = lines[i];
       const trimmed = line.trim();
 
-      // Rilevamento tabelle box-drawing Unicode
-      if (trimmed.startsWith('```') && !boxTableBuffer) {
-        // Possibile inizio blocco tabella
-        if (lines[i + 1] && /^[┌│]/.test(lines[i + 1].trim())) {
-          boxTableBuffer = [];
+      // Rilevamento righe di tabella (Markdown | o Box-Drawing ┌│├└)
+      const isMdTable = trimmed.startsWith('|') && trimmed.endsWith('|');
+      const isBoxTable = /^[┌│├└]/.test(trimmed) || (trimmed.startsWith('```') && lines[i+1] && /^[┌│]/.test(lines[i+1].trim()));
+
+      if (isMdTable || isBoxTable || (activeTable && trimmed.startsWith('```'))) {
+        const parent = currentParentStack[currentParentStack.length - 1];
+        if (!activeTable && parent) {
+          activeTable = { parent, startLine: lineNum, rawLines: [] };
+        }
+        if (activeTable) {
+          if (!trimmed.startsWith('```')) activeTable.rawLines.push(line);
           continue;
         }
-      } else if (trimmed.startsWith('```') && boxTableBuffer) {
-        // Fine blocco tabella
-        const parsed = MindmapEngine.parseBoxDrawingTable(boxTableBuffer);
-        boxTableBuffer = null;
-        if (parsed) {
-          const lastNode = currentParentStack[currentParentStack.length - 1];
-          if (lastNode && !lastNode.isRoot) {
-            lastNode.layout = 'table';
-            lastNode.tableData = parsed;
+      } else if (activeTable) {
+        // Chiusura e finalizzazione tabella come Ramo Figlio Dedicato
+        const t = activeTable;
+        activeTable = null;
+
+        let tableData = null;
+        if (t.rawLines.some(l => /^[┌│├└]/.test(l.trim()))) {
+          tableData = MindmapEngine.parseBoxDrawingTable(t.rawLines);
+        } else {
+          const validLines = t.rawLines.filter(l => l.trim().startsWith('|') && l.trim().endsWith('|'));
+          const headers = [];
+          const rows = [];
+          for (const vl of validLines) {
+            const cells = vl.split('|').slice(1, -1).map(c => c.trim());
+            if (cells.every(c => /^[-:\s]+$/.test(c))) continue;
+            if (headers.length === 0) headers.push(...cells);
+            else rows.push(cells);
           }
+          tableData = { title: '', headers, rows };
         }
-        continue;
-      } else if (boxTableBuffer) {
-        boxTableBuffer.push(line);
-        continue;
-      } else if (/^[┌│]/.test(trimmed)) {
-        // Tabella box-drawing non racchiusa in codeblock
-        const tableLines = [line];
-        let j = i + 1;
-        while (j < lines.length && /^[┌│├└─┬┼┤┴┘]/.test(lines[j].trim())) {
-          tableLines.push(lines[j]);
-          j++;
-        }
-        if (tableLines.length >= 2) {
-          const parsed = MindmapEngine.parseBoxDrawingTable(tableLines);
-          if (parsed) {
-            const lastNode = currentParentStack[currentParentStack.length - 1];
-            if (lastNode && !lastNode.isRoot) {
-              lastNode.layout = 'table';
-              lastNode.tableData = parsed;
-            }
-            i = j - 1;
-            continue;
-          }
+
+        if (tableData && (tableData.headers.length > 0 || tableData.rows.length > 0)) {
+          const tblTitle = tableData.title || (tableData.headers[0] ? `Tabella: ${tableData.headers[0]}` : 'Tabella di Sintesi');
+          const childIdx = t.parent.children.length;
+          const tableNode = {
+            id: `${t.parent.id}_tbl_${childIdx}`,
+            text: `📊 ${tblTitle.slice(0, 36)}`,
+            depth: (t.parent.depth || 1) + 1,
+            type: 'table',
+            layout: 'table',
+            tableData,
+            children: [],
+            collapsed: false,
+            sourceLine: t.startLine
+          };
+          t.parent.children.push(tableNode);
         }
       }
 
       if (!trimmed) continue;
-
-      if (trimmed.includes('layout: table') || trimmed.includes('layout:table')) {
-        const lastNode = currentParentStack[currentParentStack.length - 1];
-        if (lastNode) lastNode.layout = 'table';
-        continue;
-      }
 
       let pdfLink = null;
       const pdfMatch = trimmed.match(/\[\[([^#\]]+\.pdf)(?:#page=(\d+)(?:&rect=([0-9.,]+))?)?(?:\|([^\]]+))?\]\]/i);
@@ -261,7 +262,7 @@ class MindmapEngine {
         const level = hMatch[1].length;
         const text = hMatch[2].trim();
 
-        if (skipFirstH1AsDocTitle && level === 1 && i === h1List[0].lineIndex) {
+        if (skipFirstH1 && level === 1 && i === h1List[0].lineIndex) {
           rootNode.sourceLine = lineNum;
           continue;
         }
@@ -293,7 +294,10 @@ class MindmapEngine {
         if (fileCache[nodeId]) {
           node.customX = fileCache[nodeId].x;
           node.customY = fileCache[nodeId].y;
-          if (fileCache[nodeId].layout) node.layout = fileCache[nodeId].layout;
+          if (fileCache[nodeId].customWidth) node.customWidth = fileCache[nodeId].customWidth;
+          if (fileCache[nodeId].customHeight) node.customHeight = fileCache[nodeId].customHeight;
+          if (fileCache[nodeId].edgeText) node.edgeText = fileCache[nodeId].edgeText;
+          if (fileCache[nodeId].isOrganic) node.isOrganic = fileCache[nodeId].isOrganic;
         }
 
         parent.children.push(node);
@@ -343,7 +347,10 @@ class MindmapEngine {
         if (fileCache[nodeId]) {
           node.customX = fileCache[nodeId].x;
           node.customY = fileCache[nodeId].y;
-          if (fileCache[nodeId].layout) node.layout = fileCache[nodeId].layout;
+          if (fileCache[nodeId].customWidth) node.customWidth = fileCache[nodeId].customWidth;
+          if (fileCache[nodeId].customHeight) node.customHeight = fileCache[nodeId].customHeight;
+          if (fileCache[nodeId].edgeText) node.edgeText = fileCache[nodeId].edgeText;
+          if (fileCache[nodeId].isOrganic) node.isOrganic = fileCache[nodeId].isOrganic;
         }
 
         parent.children.push(node);
@@ -352,27 +359,7 @@ class MindmapEngine {
         continue;
       }
 
-      // Tabelle Markdown standard | col | col |
-      if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
-        const parent = currentParentStack[currentParentStack.length - 1];
-        if (parent && !parent.isRoot) {
-          parent.layout = 'table';
-          if (!parent.tableData) {
-            parent.tableData = { headers: [], rows: [] };
-          }
-          const cells = trimmed.split('|').slice(1, -1).map(c => c.trim());
-          if (cells.every(c => /^[-:]+$/.test(c))) {
-            // Separatore
-          } else if (parent.tableData.headers.length === 0) {
-            parent.tableData.headers = cells;
-          } else {
-            parent.tableData.rows.push(cells);
-          }
-          continue;
-        }
-      }
-
-      // Paragrafi / testo del nodo corrente
+      // Paragrafi
       if (currentParentStack.length > 1) {
         const lastNode = currentParentStack[currentParentStack.length - 1];
         if (lastNode && !lastNode.isRoot) {
@@ -579,28 +566,28 @@ class MindmapEngine {
     }
   }
 
-  static computeSubtreeHeight(node, verticalGap = 18) {
-    if (!node.children || !node.children.length || node.collapsed || node.layout === 'table') {
-      node.subtreeHeight = node.height + verticalGap;
+  static computeSubtreeHeight(node, verticalGap = 26) {
+    const selfH = (node.height || 50);
+    if (!node.children || !node.children.length) {
+      node.subtreeHeight = selfH + verticalGap;
       return node.subtreeHeight;
     }
     let sum = 0;
     for (const child of node.children) {
       sum += MindmapEngine.computeSubtreeHeight(child, verticalGap);
     }
-    node.subtreeHeight = Math.max(node.height + verticalGap, sum);
+    node.subtreeHeight = Math.max(selfH + verticalGap, sum);
     return node.subtreeHeight;
   }
 
   // ==========================================================================
-  // LAYOUT 1: RADIALE 360°
-  // ==========================================================================
+  // LAYOUT 1: RADIALE 360° AD ANGOLI PROPORZIONALI (ZERO-COLLISIONE)
   static computeRadialLayout(rootNode, options = {}) {
     const detailLevel = options.detailLevel || 'keypoints';
     MindmapEngine.measureNode(rootNode, detailLevel);
 
-    const cx = options.cx || 1500;
-    const cy = options.cy || 1200;
+    const cx = options.cx || 1800;
+    const cy = options.cy || 1400;
 
     rootNode.x = cx - (rootNode.width / 2);
     rootNode.y = cy - (rootNode.height / 2);
@@ -614,17 +601,29 @@ class MindmapEngine {
     const N = chapters.length;
     if (N === 0) return { nodes: renderedNodes, paths: branchPaths, root: rootNode };
 
-    const baseRx = 400;
-    const baseRy = 300;
+    // Calcolo altezze con tutti i nodi aperti
+    let totalSubtreeH = 0;
+    chapters.forEach(c => {
+      MindmapEngine.computeSubtreeHeight(c, 26);
+      totalSubtreeH += (c.subtreeHeight || 100);
+    });
+
+    // Raggio dinamico calibrato sullo sviluppo totale dei rami
+    const baseR = Math.max(550, Math.min(1200, (totalSubtreeH / (2 * Math.PI)) * 1.35));
+    const rx = baseR * 1.15;
+    const ry = baseR * 0.90;
+
+    let currentAngle = -Math.PI / 2; // Inizia in alto a ore 12
 
     for (let i = 0; i < N; i++) {
       const chap = chapters[i];
       const color = BRANCH_COLORS[i % BRANCH_COLORS.length];
       chap.color = color;
 
-      MindmapEngine.computeSubtreeHeight(chap, 20);
+      const sectorAngle = (2 * Math.PI) * ((chap.subtreeHeight || 100) / totalSubtreeH);
+      const angle = currentAngle + (sectorAngle / 2);
+      currentAngle += sectorAngle;
 
-      const angle = -Math.PI / 3 + (2 * Math.PI * i / N);
       const isRight = Math.cos(angle) >= 0;
       chap.direction = isRight ? 'right' : 'left';
 
@@ -632,10 +631,6 @@ class MindmapEngine {
         chap.x = chap.customX;
         chap.y = chap.customY;
       } else {
-        const extraR = Math.min(220, (chap.subtreeHeight || 0) * 0.22);
-        const rx = baseRx + extraR;
-        const ry = baseRy + extraR * 0.75;
-
         chap.x = cx + rx * Math.cos(angle) - (isRight ? 0 : chap.width);
         chap.y = cy + ry * Math.sin(angle) - (chap.height / 2);
       }
@@ -652,14 +647,15 @@ class MindmapEngine {
         d: `M ${startX} ${startY} C ${startX + dx} ${startY}, ${targetX - dx} ${targetY}, ${targetX} ${targetY}`,
         color,
         fromId: rootNode.id,
-        toId: chap.id
+        toId: chap.id,
+        edgeText: chap.edgeText || ''
       });
 
-      if (chap.layout !== 'table') {
-        MindmapEngine.positionSubChildren(chap, color, chap.direction, 80, renderedNodes, branchPaths);
-      }
+      // Posiziona SEMPRE tutti i figli dei capitoli
+      MindmapEngine.positionSubChildren(chap, color, chap.direction, 80, renderedNodes, branchPaths);
     }
 
+    MindmapEngine.resolveCollisions(renderedNodes, 24);
     return { nodes: renderedNodes, paths: branchPaths, root: rootNode };
   }
 
@@ -1506,6 +1502,20 @@ class MindmapCanvas {
     mkViewBtn('right', 'A Destra', '🌿');
     mkViewBtn('table', 'Tabella', '📊');
     mkViewBtn('outline', 'Outline', '📑');
+
+    const btnOrganic = groupViews.createEl('button', {
+      cls: 'cds-mm-dock-btn' + (this.isOrganicView ? ' is-active' : ''),
+      attr: { title: 'Alterna Stile Caselle e Vista Organica (senza box)' }
+    });
+    btnOrganic.innerHTML = `🌿 <span class="cds-mm-btn-text">${this.isOrganicView ? 'Organica' : 'Caselle'}</span>`;
+    btnOrganic.onmousedown = (e) => e.stopPropagation();
+    btnOrganic.onclick = (e) => {
+      e.stopPropagation();
+      this.isOrganicView = !this.isOrganicView;
+      btnOrganic.innerHTML = `🌿 <span class="cds-mm-btn-text">${this.isOrganicView ? 'Organica' : 'Caselle'}</span>`;
+      btnOrganic.classList.toggle('is-active', this.isOrganicView);
+      this.render();
+    };
 
     // GRUPPO 2: DETTAGLIO
     const groupDetail = this.topDock.createDiv({ cls: 'cds-mm-dock-group' });
@@ -2886,7 +2896,7 @@ class CdsMindmapView extends ItemView {
 
 module.exports = class CdsMindmapPlugin extends Plugin {
   async onload() {
-    console.log('Loading CDS Mindmap Suite v1.6.0 (Organic View, Canvas-Style Resizing, Branch Labels, Zero-Overlap 2D Solver & Safe Table Preservation)');
+    console.log('Loading CDS Mindmap Suite v1.7.0 (Proportional Radial Sectors, Dedicated Table Branches, Zero-Collision 2D Solver, Canvas Resize & Organic View) (Organic View, Canvas-Style Resizing, Branch Labels, Zero-Overlap 2D Solver & Safe Table Preservation)');
 
     this.registerView(VIEW_TYPE_MINDMAP, (leaf) => new CdsMindmapView(leaf, this));
 

@@ -1,9 +1,9 @@
 {
   "id": "cds-mindmap",
   "name": "CDS Mappe Concettuali & Mindmap (MarkMind)",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "minAppVersion": "1.4.0",
-  "description": "Suite professionale Mappe Concettuali: Vista Organica libera (senza caselle), Ridimensionamento nodi stile Canvas, Etichette testo su rami, Risoluzione collisioni 2D a zero-sovrapposizione, e preservazione sicura tabelle markdown.",
+  "description": "Suite professionale Mappe Concettuali: Risoluzione collisioni 2D a zero-sovrapposizione (calcolata con nodi tutti aperti), settori radiali proporzionali, rami tabella dedicati senza perdita di sottocapitoli, ridimensionamento stile canvas, vista organica libera e preservazione sicura della nota.",
   "author": "Conce",
   "isDesktopOnly": false
 }
