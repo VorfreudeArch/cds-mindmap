@@ -1,9 +1,9 @@
 {
   "id": "cds-mindmap",
   "name": "CDS Mindmap & Concept Tree",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "minAppVersion": "1.0.0",
-  "description": "Mappa concettuale gerarchica con zero-collisione a massima apertura, modali native Obsidian per Foto/PDF/Link, folding nodi affidabile e cartiglio/timbro/firma con dimensioni e immagini.",
+  "description": "Mappa concettuale con distanze anti-sovrapposizione calibrate, memoria layout persistente per file (data.json), ripristino immediato geometria, ricerca e filtro istantaneo dei concetti.",
   "author": "VorfreudeArch",
   "isDesktopOnly": false
 }

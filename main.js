@@ -461,14 +461,14 @@ class MindmapEngine {
    * Sistema Anticonflitto / Anti-sovrapposizione dei Nodi:
    * I nodi non possono sovrapporsi, mantengono ordine verticale ed elegante spaziatura.
    */
-  static resolveCollisions(nodes, minGap = 22) {
+  static resolveCollisions(nodes, minGapX = 45, minGapY = 34) {
     if (!nodes || nodes.length < 2) return;
 
     const root = nodes.find(n => n.isRoot);
-    const rootPadX = 40;
-    const rootPadY = 28;
+    const rootPadX = 60;
+    const rootPadY = 40;
 
-    for (let iter = 0; iter < 35; iter++) {
+    for (let iter = 0; iter < 45; iter++) {
       let hadCollision = false;
 
       for (let i = 0; i < nodes.length; i++) {
@@ -481,9 +481,9 @@ class MindmapEngine {
           const ovRootY = Math.min(a.y + a.height, root.y + root.height + rootPadY) - Math.max(a.y, root.y - rootPadY);
           if (ovRootX > 0 && ovRootY > 0) {
             if (a.x >= root.x + (root.width / 2)) {
-              a.x = root.x + root.width + rootPadX + 12;
+              a.x = root.x + root.width + rootPadX + 16;
             } else {
-              a.x = root.x - a.width - rootPadX - 12;
+              a.x = root.x - a.width - rootPadX - 16;
             }
             hadCollision = true;
           }
@@ -498,19 +498,33 @@ class MindmapEngine {
           const bRight = b.x + b.width;
           const bBottom = b.y + b.height;
 
-          const ovX = Math.min(aRight, bRight) - Math.max(a.x, b.x) + minGap;
-          const ovY = Math.min(aBottom, bBottom) - Math.max(a.y, b.y) + minGap;
+          const ovX = Math.min(aRight + minGapX, bRight + minGapX) - Math.max(a.x, b.x);
+          const ovY = Math.min(aBottom + minGapY, bBottom + minGapY) - Math.max(a.y, b.y);
 
           if (ovX > 0 && ovY > 0) {
             hadCollision = true;
 
-            // Risoluzione 2D: mantieni ordine verticale o sposta orizzontalmente
-            if (a.y <= b.y) {
-              b.y += ovY;
-              if (b.customY !== undefined) b.customY += ovY;
+            const xOverlap = Math.min(aRight, bRight) - Math.max(a.x, b.x);
+            if (xOverlap > 20) {
+              if (a.y <= b.y) {
+                const pushY = (aBottom + minGapY) - b.y;
+                b.y += pushY;
+                if (b.customY !== undefined) b.customY += pushY;
+              } else {
+                const pushY = (bBottom + minGapY) - a.y;
+                a.y += pushY;
+                if (a.customY !== undefined) a.customY += pushY;
+              }
             } else {
-              a.y += ovY;
-              if (a.customY !== undefined) a.customY += ovY;
+              if (a.x <= b.x) {
+                const pushX = (aRight + minGapX) - b.x;
+                b.x += pushX;
+                if (b.customX !== undefined) b.customX += pushX;
+              } else {
+                const pushX = (bRight + minGapX) - a.x;
+                a.x += pushX;
+                if (a.customX !== undefined) a.customX += pushX;
+              }
             }
           }
         }
@@ -523,41 +537,61 @@ class MindmapEngine {
   static measureNode(node, detailLevel = 'keypoints') {
     const text = node.text || '';
     const cleanText = text.replace(/\[\[.*?\]\]/g, 'Link').replace(/\*\*|==|\*|`/g, '');
-    const lines = cleanText.split('\n');
-    const maxLineLen = lines.reduce((max, l) => Math.max(max, l.length), 0);
+    const rawLines = cleanText.split('\n');
+    const maxLineLen = rawLines.reduce((max, l) => Math.max(max, l.length), 0);
 
-    // Dimensionamento generoso per evitare spezzettamenti di parole
-    let w = Math.max(140, Math.min(380, maxLineLen * 9.5 + 46));
-    let h = Math.max(46, lines.length * 22 + 22);
+    // Dimensionamento orizzontale generoso
+    let w = Math.max(160, Math.min(420, maxLineLen * 9.5 + 54));
+
+    // Stima accurata di word-wrapping nel DOM con font a 13-14px
+    const printableWidth = Math.max(120, w - 50);
+    const charsPerLine = Math.max(16, Math.floor(printableWidth / 8.2));
+
+    let wrappedLineCount = 0;
+    for (const rl of rawLines) {
+      const trimmed = rl.trim();
+      if (!trimmed) {
+        wrappedLineCount += 1;
+      } else {
+        wrappedLineCount += Math.max(1, Math.ceil(trimmed.length / charsPerLine));
+      }
+    }
+    wrappedLineCount = Math.max(1, wrappedLineCount);
+
+    // Altezza base con padding e line-height (24px a riga + 32px padding/border)
+    let h = Math.max(54, wrappedLineCount * 24 + 32);
 
     if (node.images && node.images.length) {
-      w = Math.max(w, 240);
-      h += 110;
+      w = Math.max(w, 260);
+      h += 120;
     }
 
     if (node.layout === 'table') {
-      w = Math.max(w, 380);
+      w = Math.max(w, 440);
       const rowCount = (node.tableData && node.tableData.rows) ? node.tableData.rows.length : (node.children ? node.children.length : 1);
-      h = Math.max(h, 95 + rowCount * 34);
+      h = Math.max(h, 110 + rowCount * 36);
     } else {
       if (detailLevel === 'full' && node.bodyText) {
-        w = Math.max(w, 260);
-        h += Math.min(130, node.bodyText.length * 0.5 + 26);
+        w = Math.max(w, 280);
+        const bodyLines = node.bodyText.split('\n').length;
+        h += Math.max(40, Math.min(180, bodyLines * 22 + 28));
       }
       if (node.pdfLink) {
-        h += 24;
-        w = Math.max(w, 180);
+        h += 28;
+        w = Math.max(w, 200);
       }
     }
 
     // Titolo Centrale
     if (node.isRoot) {
-      w = Math.max(260, Math.min(500, maxLineLen * 12 + 80));
-      h = Math.max(70, lines.length * 28 + 36);
+      w = Math.max(280, Math.min(540, maxLineLen * 12 + 90));
+      const rootCharsPerLine = Math.max(20, Math.floor((w - 60) / 10.5));
+      const rootWrapped = Math.max(1, Math.ceil(cleanText.length / rootCharsPerLine));
+      h = Math.max(76, rootWrapped * 32 + 40);
     }
 
     node.width = node.customWidth ? Math.max(120, node.customWidth) : w;
-    node.height = node.customHeight ? Math.max(40, node.customHeight) : h;
+    node.height = node.customHeight ? Math.max(48, node.customHeight) : h;
 
     if (node.children && node.children.length && node.layout !== 'table') {
       for (const child of node.children) {
@@ -566,9 +600,9 @@ class MindmapEngine {
     }
   }
 
-  static computeSubtreeHeight(node, verticalGap = 26) {
-    const selfH = (node.height || 50);
-    if (!node.children || !node.children.length) {
+  static computeSubtreeHeight(node, verticalGap = 42) {
+    const selfH = (node.height || 54);
+    if (!node.children || !node.children.length || node.layout === 'table' || node.collapsed) {
       node.subtreeHeight = selfH + verticalGap;
       return node.subtreeHeight;
     }
@@ -581,13 +615,16 @@ class MindmapEngine {
   }
 
   // ==========================================================================
-  // LAYOUT 1: RADIALE 360° AD ANGOLI PROPORZIONALI (ZERO-COLLISIONE)
+  // LAYOUT 1: RADIALE 360° AD ANGOLI PROPORZIONALI (DISTANZE AMPIE E ANTI-COLLISIONE)
   static computeRadialLayout(rootNode, options = {}) {
     const detailLevel = options.detailLevel || 'keypoints';
+    const horizontalGap = options.horizontalGap || 135;
+    const verticalGap = options.verticalGap || 40;
+
     MindmapEngine.measureNode(rootNode, detailLevel);
 
-    const cx = options.cx || 1800;
-    const cy = options.cy || 1400;
+    const cx = options.cx || 2400;
+    const cy = options.cy || 1800;
 
     rootNode.x = cx - (rootNode.width / 2);
     rootNode.y = cy - (rootNode.height / 2);
@@ -601,26 +638,24 @@ class MindmapEngine {
     const N = chapters.length;
     if (N === 0) return { nodes: renderedNodes, paths: branchPaths, root: rootNode };
 
-    // Calcolo altezze con tutti i nodi aperti
     let totalSubtreeH = 0;
     chapters.forEach(c => {
-      MindmapEngine.computeSubtreeHeight(c, 26);
-      totalSubtreeH += (c.subtreeHeight || 100);
+      MindmapEngine.computeSubtreeHeight(c, verticalGap);
+      totalSubtreeH += (c.subtreeHeight || 120);
     });
 
-    // Raggio dinamico calibrato sullo sviluppo totale dei rami
-    const baseR = Math.max(550, Math.min(1200, (totalSubtreeH / (2 * Math.PI)) * 1.35));
-    const rx = baseR * 1.15;
-    const ry = baseR * 0.90;
+    const baseR = Math.max(680, Math.min(1600, (totalSubtreeH / (2 * Math.PI)) * 1.55));
+    const rx = baseR * 1.18;
+    const ry = baseR * 0.95;
 
-    let currentAngle = -Math.PI / 2; // Inizia in alto a ore 12
+    let currentAngle = -Math.PI / 2;
 
     for (let i = 0; i < N; i++) {
       const chap = chapters[i];
       const color = BRANCH_COLORS[i % BRANCH_COLORS.length];
       chap.color = color;
 
-      const sectorAngle = (2 * Math.PI) * ((chap.subtreeHeight || 100) / totalSubtreeH);
+      const sectorAngle = (2 * Math.PI) * ((chap.subtreeHeight || 120) / totalSubtreeH);
       const angle = currentAngle + (sectorAngle / 2);
       currentAngle += sectorAngle;
 
@@ -641,45 +676,44 @@ class MindmapEngine {
       const startY = rootNode.y + (rootNode.height / 2);
       const targetX = isRight ? chap.x : chap.x + chap.width;
       const targetY = chap.y + (chap.height / 2);
-      const dx = (targetX - startX) * 0.55;
+      const dx = Math.abs(targetX - startX) * 0.55;
 
       branchPaths.push({
-        d: `M ${startX} ${startY} C ${startX + dx} ${startY}, ${targetX - dx} ${targetY}, ${targetX} ${targetY}`,
+        d: 'M ' + startX + ' ' + startY + ' C ' + (startX + (isRight ? dx : -dx)) + ' ' + startY + ', ' + (targetX + (isRight ? -dx : dx)) + ' ' + targetY + ', ' + targetX + ' ' + targetY,
         color,
         fromId: rootNode.id,
         toId: chap.id,
         edgeText: chap.edgeText || ''
       });
 
-      // Posiziona SEMPRE tutti i figli dei capitoli
-      MindmapEngine.positionSubChildren(chap, color, chap.direction, 80, renderedNodes, branchPaths);
+      MindmapEngine.positionSubChildren(chap, color, chap.direction, horizontalGap, renderedNodes, branchPaths, verticalGap);
     }
 
-    MindmapEngine.resolveCollisions(renderedNodes, 24);
+    MindmapEngine.resolveCollisions(renderedNodes, 45, 34);
     return { nodes: renderedNodes, paths: branchPaths, root: rootNode };
   }
 
   // ==========================================================================
-  // LAYOUT 2: BILATERALE
+  // LAYOUT 2: BILATERALE AD AMPIA SPAZIATURA E SLAB ANTI-COLLISIONE
   // ==========================================================================
-    static computeBilateralLayout(rootNode, options = {}) {
-    const horizontalGap = options.horizontalGap || 90;
-    const verticalGap = options.verticalGap || 26;
+  static computeBilateralLayout(rootNode, options = {}) {
+    const horizontalGap = options.horizontalGap || 135;
+    const verticalGap = options.verticalGap || 42;
     const detailLevel = options.detailLevel || 'keypoints';
 
     MindmapEngine.measureNode(rootNode, detailLevel);
 
     function calcFullSubtreeHeight(n) {
       MindmapEngine.measureNode(n, detailLevel);
-      if (!n.children || !n.children.length || n.layout === 'table') {
-        n.subtreeHeight = (n.height || 46) + verticalGap;
+      if (!n.children || !n.children.length || n.layout === 'table' || n.collapsed) {
+        n.subtreeHeight = (n.height || 54) + verticalGap;
         return n.subtreeHeight;
       }
       let sum = 0;
       for (const ch of n.children) {
         sum += calcFullSubtreeHeight(ch);
       }
-      n.subtreeHeight = Math.max((n.height || 46) + verticalGap, sum);
+      n.subtreeHeight = Math.max((n.height || 54) + verticalGap, sum);
       return n.subtreeHeight;
     }
 
@@ -696,14 +730,15 @@ class MindmapEngine {
       else leftChildren.push(children[i]);
     }
 
+    const chapterGap = 65;
     let totalRightH = 0;
-    rightChildren.forEach(c => totalRightH += (c.subtreeHeight + 45));
+    rightChildren.forEach(c => totalRightH += (c.subtreeHeight + chapterGap));
     let totalLeftH = 0;
-    leftChildren.forEach(c => totalLeftH += (c.subtreeHeight + 45));
+    leftChildren.forEach(c => totalLeftH += (c.subtreeHeight + chapterGap));
 
-    const maxSideH = Math.max(totalRightH, totalLeftH, 700);
-    const cx = options.cx || 2200;
-    const cy = options.cy || Math.max(500, maxSideH / 2);
+    const maxSideH = Math.max(totalRightH, totalLeftH, 800);
+    const cx = options.cx || 2400;
+    const cy = options.cy || Math.max(600, maxSideH / 2);
 
     rootNode.x = cx - (rootNode.width / 2);
     rootNode.y = cy - (rootNode.height / 2);
@@ -785,7 +820,7 @@ class MindmapEngine {
       });
 
       placeSlab(chap, curRightY, 'right', color);
-      curRightY += chap.subtreeHeight + 45;
+      curRightY += chap.subtreeHeight + chapterGap;
     });
 
     let curLeftY = rootNode.y + (rootNode.height / 2) - (totalLeftH / 2);
@@ -819,35 +854,56 @@ class MindmapEngine {
       });
 
       placeSlab(chap, curLeftY, 'left', color);
-      curLeftY += chap.subtreeHeight + 45;
+      curLeftY += chap.subtreeHeight + chapterGap;
     });
 
-    MindmapEngine.resolveCollisions(renderedNodes, 24);
+    MindmapEngine.resolveCollisions(renderedNodes, 45, 34);
     return { nodes: renderedNodes, paths: branchPaths, root: rootNode };
   }
 
+  // ==========================================================================
+  // LAYOUT 3: A DESTRA AD AMPIA SPAZIATURA E ZERO-CONFLITTO
+  // ==========================================================================
   static computeRightLayout(rootNode, options = {}) {
-    const horizontalGap = options.horizontalGap || 80;
-    const verticalGap = options.verticalGap || 18;
+    const horizontalGap = options.horizontalGap || 135;
+    const verticalGap = options.verticalGap || 42;
     const detailLevel = options.detailLevel || 'keypoints';
 
     MindmapEngine.measureNode(rootNode, detailLevel);
-    MindmapEngine.computeSubtreeHeight(rootNode, verticalGap);
 
-    rootNode.x = 90;
-    rootNode.y = Math.max(240, (rootNode.subtreeHeight - rootNode.height) / 2);
+    function calcFullSubtreeHeight(n) {
+      MindmapEngine.measureNode(n, detailLevel);
+      if (!n.children || !n.children.length || n.layout === 'table' || n.collapsed) {
+        n.subtreeHeight = (n.height || 54) + verticalGap;
+        return n.subtreeHeight;
+      }
+      let sum = 0;
+      for (const ch of n.children) {
+        sum += calcFullSubtreeHeight(ch);
+      }
+      n.subtreeHeight = Math.max((n.height || 54) + verticalGap, sum);
+      return n.subtreeHeight;
+    }
+
+    calcFullSubtreeHeight(rootNode);
+
+    const chapterGap = 65;
+    let totalH = 0;
+    (rootNode.children || []).forEach(c => totalH += (c.subtreeHeight + chapterGap));
+
+    rootNode.x = 120;
+    rootNode.y = Math.max(300, totalH / 2);
     rootNode.color = '#38bdf8';
     rootNode.direction = 'right';
 
     const renderedNodes = [rootNode];
     const branchPaths = [];
 
-    if (rootNode.children && rootNode.children.length && !rootNode.collapsed) {
-      let curY = rootNode.y + (rootNode.height / 2) - (rootNode.subtreeHeight / 2);
+    function placeSlab(parent, startY, color) {
+      if (!parent.children || !parent.children.length || parent.layout === 'table' || parent.collapsed) return;
 
-      for (let i = 0; i < rootNode.children.length; i++) {
-        const child = rootNode.children[i];
-        const color = BRANCH_COLORS[i % BRANCH_COLORS.length];
+      let y = startY;
+      for (const child of parent.children) {
         child.color = color;
         child.direction = 'right';
 
@@ -855,40 +911,74 @@ class MindmapEngine {
           child.x = child.customX;
           child.y = child.customY;
         } else {
-          child.x = rootNode.x + rootNode.width + horizontalGap;
-          child.y = curY + (child.subtreeHeight / 2) - (child.height / 2);
+          child.x = parent.x + parent.width + horizontalGap;
+          child.y = y + (child.subtreeHeight / 2) - (child.height / 2);
         }
-        curY += child.subtreeHeight;
 
         renderedNodes.push(child);
 
-        const x1 = rootNode.x + rootNode.width;
-        const y1 = rootNode.y + (rootNode.height / 2);
+        const x1 = parent.x + parent.width;
+        const y1 = parent.y + (parent.height / 2);
         const x2 = child.x;
         const y2 = child.y + (child.height / 2);
-        const dx = (x2 - x1) * 0.55;
+        const dx = Math.abs(x2 - x1) * 0.55;
 
         branchPaths.push({
-          d: `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`,
+          d: 'M ' + x1 + ' ' + y1 + ' C ' + (x1 + dx) + ' ' + y1 + ', ' + (x2 - dx) + ' ' + y2 + ', ' + x2 + ' ' + y2,
           color,
-          fromId: rootNode.id,
+          fromId: parent.id,
           toId: child.id,
           edgeText: child.edgeText || ''
         });
 
-        if (child.layout !== 'table') {
-          MindmapEngine.positionSubChildren(child, color, 'right', horizontalGap, renderedNodes, branchPaths);
-        }
+        placeSlab(child, y, color);
+        y += child.subtreeHeight;
       }
     }
 
+    let curY = rootNode.y + (rootNode.height / 2) - (totalH / 2);
+    (rootNode.children || []).forEach((chap, idx) => {
+      const color = BRANCH_COLORS[idx % BRANCH_COLORS.length];
+      chap.color = color;
+      chap.direction = 'right';
+
+      if (chap.customX !== undefined && chap.customY !== undefined) {
+        chap.x = chap.customX;
+        chap.y = chap.customY;
+      } else {
+        chap.x = rootNode.x + rootNode.width + horizontalGap;
+        chap.y = curY + (chap.subtreeHeight / 2) - (chap.height / 2);
+      }
+
+      renderedNodes.push(chap);
+
+      const x1 = rootNode.x + rootNode.width;
+      const y1 = rootNode.y + (rootNode.height / 2);
+      const x2 = chap.x;
+      const y2 = chap.y + (chap.height / 2);
+      const dx = Math.abs(x2 - x1) * 0.55;
+
+      branchPaths.push({
+        d: 'M ' + x1 + ' ' + y1 + ' C ' + (x1 + dx) + ' ' + y1 + ', ' + (x2 - dx) + ' ' + y2 + ', ' + x2 + ' ' + y2,
+        color,
+        fromId: rootNode.id,
+        toId: chap.id,
+        edgeText: chap.edgeText || ''
+      });
+
+      placeSlab(chap, curY, color);
+      curY += chap.subtreeHeight + chapterGap;
+    });
+
+    MindmapEngine.resolveCollisions(renderedNodes, 45, 34);
     return { nodes: renderedNodes, paths: branchPaths, root: rootNode };
   }
 
-  static positionSubChildren(parent, color, direction, horizontalGap, renderedNodes, branchPaths) {
+  static positionSubChildren(parent, color, direction, horizontalGap, renderedNodes, branchPaths, verticalGap = 40) {
     if (!parent.children || !parent.children.length || parent.layout === 'table' || parent.collapsed) return;
 
     let startY = parent.y + (parent.height / 2) - (parent.subtreeHeight / 2);
+    const isRight = direction === 'right';
 
     for (let i = 0; i < parent.children.length; i++) {
       const child = parent.children[i];
@@ -899,50 +989,32 @@ class MindmapEngine {
         child.x = child.customX;
         child.y = child.customY;
       } else {
-        if (direction === 'right') {
-          child.x = parent.x + parent.width + horizontalGap;
-          child.y = startY + (child.subtreeHeight / 2) - (child.height / 2);
-        } else {
-          child.x = parent.x - child.width - horizontalGap;
-          child.y = startY + (child.subtreeHeight / 2) - (child.height / 2);
-        }
+        child.x = isRight ? parent.x + parent.width + horizontalGap : parent.x - child.width - horizontalGap;
+        child.y = startY + (child.subtreeHeight / 2) - (child.height / 2);
       }
-      startY += child.subtreeHeight;
 
       renderedNodes.push(child);
 
-      if (direction === 'right') {
-        const x1 = parent.x + parent.width;
-        const y1 = parent.y + (parent.height / 2);
-        const x2 = child.x;
-        const y2 = child.y + (child.height / 2);
-        const dx = (x2 - x1) * 0.55;
+      const startX = isRight ? parent.x + parent.width : parent.x;
+      const startYPoint = parent.y + (parent.height / 2);
+      const targetX = isRight ? child.x : child.x + child.width;
+      const targetYPoint = child.y + (child.height / 2);
+      const dx = Math.abs(targetX - startX) * 0.55;
 
-        branchPaths.push({
-          d: `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`,
-          color,
-          fromId: parent.id,
-          toId: child.id,
-          edgeText: child.edgeText || ''
-        });
-      } else {
-        const x1 = parent.x;
-        const y1 = parent.y + (parent.height / 2);
-        const x2 = child.x + child.width;
-        const y2 = child.y + (child.height / 2);
-        const dx = (x1 - x2) * 0.55;
+      branchPaths.push({
+        d: isRight
+          ? 'M ' + startX + ' ' + startYPoint + ' C ' + (startX + dx) + ' ' + startYPoint + ', ' + (targetX - dx) + ' ' + targetYPoint + ', ' + targetX + ' ' + targetYPoint
+          : 'M ' + startX + ' ' + startYPoint + ' C ' + (startX - dx) + ' ' + startYPoint + ', ' + (targetX + dx) + ' ' + targetYPoint + ', ' + targetX + ' ' + targetYPoint,
+        color,
+        fromId: parent.id,
+        toId: child.id,
+        edgeText: child.edgeText || ''
+      });
 
-        branchPaths.push({
-          d: `M ${x1} ${y1} C ${x1 - dx} ${y1}, ${x2 + dx} ${y2}, ${x2} ${y2}`,
-          color,
-          fromId: parent.id,
-          toId: child.id,
-          edgeText: child.edgeText || ''
-        });
-      }
+      startY += child.subtreeHeight;
 
       if (child.layout !== 'table') {
-        MindmapEngine.positionSubChildren(child, color, direction, horizontalGap, renderedNodes, branchPaths);
+        MindmapEngine.positionSubChildren(child, color, direction, horizontalGap, renderedNodes, branchPaths, verticalGap);
       }
     }
   }
@@ -1675,6 +1747,40 @@ class MindmapCanvas {
     this.sheetFormat = 'A3';
     this.sheetOrientation = 'landscape';
 
+    // RIPRISTINA MEMORIA LAYOUT SALVATA SU DISCO (DATA.JSON) PER QUESTO FILE
+    if (this.plugin && this.plugin.settings && this.plugin.settings.fileLayouts && this.filePath) {
+      const saved = this.plugin.settings.fileLayouts[this.filePath];
+      if (saved) {
+        if (saved.viewMode) this.viewMode = saved.viewMode;
+        if (saved.detailLevel) this.detailLevel = saved.detailLevel;
+        if (saved.isOrganicView !== undefined) this.isOrganicView = saved.isOrganicView;
+        if (saved.panX !== undefined) this.panX = saved.panX;
+        if (saved.panY !== undefined) this.panY = saved.panY;
+        if (saved.zoom !== undefined) this.zoom = saved.zoom;
+
+        if (saved.positions) {
+          for (const [id, pos] of Object.entries(saved.positions)) {
+            const raw = this.findRawNode(id);
+            if (raw) {
+              if (pos.x !== undefined) raw.customX = pos.x;
+              if (pos.y !== undefined) raw.customY = pos.y;
+              if (pos.customWidth) raw.customWidth = pos.customWidth;
+              if (pos.customHeight) raw.customHeight = pos.customHeight;
+              if (pos.layout) raw.layout = pos.layout;
+              if (pos.isOrganic !== undefined) raw.isOrganic = pos.isOrganic;
+              if (pos.edgeText) raw.edgeText = pos.edgeText;
+            }
+          }
+        }
+        if (Array.isArray(saved.collapsed)) {
+          for (const id of saved.collapsed) {
+            const raw = this.findRawNode(id);
+            if (raw) raw.collapsed = true;
+          }
+        }
+      }
+    }
+
     this.draggedNodeState = null;
 
     this.initDOM();
@@ -1750,6 +1856,7 @@ class MindmapCanvas {
       b.onclick = (e) => {
         e.stopPropagation();
         this.viewMode = id;
+        this.saveLayoutMemory();
         this.renderTopDock();
         this.render();
       };
@@ -1773,6 +1880,7 @@ class MindmapCanvas {
       this.isOrganicView = !this.isOrganicView;
       btnOrganic.innerHTML = `🌿 <span class="cds-mm-btn-text">${this.isOrganicView ? 'Organica' : 'Caselle'}</span>`;
       btnOrganic.classList.toggle('is-active', this.isOrganicView);
+      this.saveLayoutMemory();
       this.render();
     };
 
@@ -1790,6 +1898,7 @@ class MindmapCanvas {
       b.onclick = (e) => {
         e.stopPropagation();
         this.detailLevel = lvl;
+        this.saveLayoutMemory();
         this.renderTopDock();
         this.render();
       };
@@ -1822,7 +1931,7 @@ class MindmapCanvas {
 
     mkToolBtn('🔍 Adatta', 'Visualizza Intera Mappa nello Schermo (Fit-All)', () => this.fitToScreen());
     mkToolBtn('🧭 Centra', 'Centra la radice della mappa (Ctrl+E)', () => this.centerRoot());
-    mkToolBtn('🔄 Reset', 'Reimposta posizioni automatiche', () => this.resetCustomPositions());
+    mkToolBtn('🔄 <span class="cds-mm-btn-text">Resetta Mappa</span>', 'Cancella la memoria della mappa e ripristina la geometria automatica anti-sovrapposizione', () => this.resetLayoutMemory());
 
     // Toggle Foglio di Stampa su Canvas
     mkToolBtn('📄 <span class="cds-mm-btn-text">Foglio Stampa</span>', 'Mostra / Nascondi perimetro foglio A0-A6 sul canvas', () => this.toggleSheetOverlay(), this.showSheetOverlay);
@@ -1831,6 +1940,35 @@ class MindmapCanvas {
     groupTools.createDiv({ cls: 'cds-mm-divider' });
 
     mkToolBtn('📤 Esporta HD', 'Esporta nei formati da A0 ad A6 (PNG, JPG, PDF, SVG Vettoriale)', () => this.openExportModal());
+
+    // Ricerca Rapida Concetti nella Mappa
+    const searchWrap = groupTools.createDiv({ cls: 'cds-mm-search-wrap' });
+    searchWrap.style.cssText = 'display:flex;align-items:center;margin-left:6px;';
+    const inpSearch = searchWrap.createEl('input', {
+      type: 'text',
+      placeholder: '🔍 Cerca nodo...',
+      cls: 'cds-mm-dock-search'
+    });
+    inpSearch.style.cssText = 'background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:14px;padding:3px 10px;font-size:0.75rem;color:#f8fafc;width:110px;outline:none;transition:all 0.2s ease;';
+    inpSearch.onfocus = () => { inpSearch.style.width = '170px'; inpSearch.style.borderColor = '#38bdf8'; };
+    inpSearch.onblur = () => { if (!inpSearch.value) { inpSearch.style.width = '110px'; inpSearch.style.borderColor = 'rgba(255,255,255,0.15)'; } };
+    inpSearch.onmousedown = (e) => e.stopPropagation();
+    inpSearch.oninput = () => {
+      const q = inpSearch.value.trim().toLowerCase();
+      const allEls = this.nodesLayer.querySelectorAll('.cds-mm-node');
+      allEls.forEach(el => {
+        if (!q) {
+          el.style.opacity = '1';
+          el.style.boxShadow = '';
+        } else if (el.textContent.toLowerCase().includes(q)) {
+          el.style.opacity = '1';
+          el.style.boxShadow = '0 0 16px rgba(251, 191, 36, 0.8), 0 0 0 2px #fbbf24';
+        } else {
+          el.style.opacity = '0.22';
+          el.style.boxShadow = '';
+        }
+      });
+    };
   }
 
   toggleSheetOverlay() {
@@ -1919,6 +2057,7 @@ class MindmapCanvas {
       nodeEl.style.left = `${node.x}px`;
       nodeEl.style.top = `${node.y}px`;
       nodeEl.style.width = `${node.width}px`;
+      nodeEl.style.minHeight = `${node.height}px`;
       nodeEl.style.borderColor = node.isRoot ? 'rgba(255,255,255,0.5)' : node.color || '#38bdf8';
 
       if (isSelected) selectedNodeEl = nodeEl;
@@ -2169,7 +2308,8 @@ class MindmapCanvas {
     const onUp = () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
-      MindmapEngine.resolveCollisions(this.renderedNodes, 20);
+      MindmapEngine.resolveCollisions(this.renderedNodes, 45, 34);
+      this.saveLayoutMemory();
       this.render();
     };
 
@@ -2295,6 +2435,7 @@ class MindmapCanvas {
     if (rawNode.children && rawNode.children.length) {
       mkFloatBtn(rawNode.collapsed ? '👁️ Mostra' : '👁️ Riduci', rawNode.collapsed ? 'Espandi nodi figli' : 'Riduci e nascondi rami figli', () => {
         rawNode.collapsed = !rawNode.collapsed;
+        this.saveLayoutMemory();
         this.render();
         this.triggerSave();
       });
@@ -2621,6 +2762,7 @@ class MindmapCanvas {
           fc[s.rawNode.id] = { x: s.rawNode.customX, y: s.rawNode.customY, layout: s.rawNode.layout };
           CUSTOM_POSITIONS_CACHE.set(this.filePath, fc);
         }
+        this.saveLayoutMemory();
 
         this.render();
         this.triggerSave();
@@ -2649,7 +2791,83 @@ class MindmapCanvas {
     }
   }
 
+  
+  async saveLayoutMemory() {
+    if (!this.plugin || !this.filePath) return;
+    if (!this.plugin.settings) this.plugin.settings = { fileLayouts: {} };
+    if (!this.plugin.settings.fileLayouts) this.plugin.settings.fileLayouts = {};
+
+    const positions = {};
+    const collapsed = [];
+
+    const walk = (n) => {
+      if (n.customX !== undefined && n.customY !== undefined) {
+        positions[n.id] = {
+          x: Math.round(n.customX),
+          y: Math.round(n.customY),
+          customWidth: n.customWidth,
+          customHeight: n.customHeight,
+          layout: n.layout,
+          isOrganic: n.isOrganic,
+          edgeText: n.edgeText
+        };
+      }
+      if (n.collapsed) {
+        collapsed.push(n.id);
+      }
+      if (n.children) n.children.forEach(walk);
+    };
+    walk(this.rawRootNode);
+
+    this.plugin.settings.fileLayouts[this.filePath] = {
+      positions,
+      collapsed,
+      viewMode: this.viewMode,
+      detailLevel: this.detailLevel,
+      isOrganicView: !!this.isOrganicView,
+      panX: Math.round(this.panX),
+      panY: Math.round(this.panY),
+      zoom: Number(this.zoom.toFixed(2)),
+      updatedAt: Date.now()
+    };
+
+    CUSTOM_POSITIONS_CACHE.set(this.filePath, positions);
+    if (this.plugin.saveSettings) {
+      await this.plugin.saveSettings();
+    }
+  }
+
+  async resetLayoutMemory() {
+    const clearWalk = (n) => {
+      delete n.customX;
+      delete n.customY;
+      delete n.customWidth;
+      delete n.customHeight;
+      n.collapsed = false;
+      if (n.children) n.children.forEach(clearWalk);
+    };
+    clearWalk(this.rawRootNode);
+
+    if (this.plugin && this.plugin.settings && this.plugin.settings.fileLayouts && this.filePath) {
+      delete this.plugin.settings.fileLayouts[this.filePath];
+      if (this.plugin.saveSettings) {
+        await this.plugin.saveSettings();
+      }
+    }
+
+    if (this.filePath) {
+      CUSTOM_POSITIONS_CACHE.delete(this.filePath);
+    }
+
+    new Notice('🔄 Memoria mappa cancellata: geometria automatica e distanze ottimali ripristinate!');
+    this.render();
+    this.fitToScreen();
+  }
+
   resetCustomPositions() {
+    this.resetLayoutMemory();
+    return;
+
     const clearWalk = (n) => {
       delete n.customX;
       delete n.customY;
@@ -3138,7 +3356,8 @@ class CdsMindmapView extends ItemView {
 
 module.exports = class CdsMindmapPlugin extends Plugin {
   async onload() {
-    console.log('Loading CDS Mindmap Suite v1.7.0 (Proportional Radial Sectors, Dedicated Table Branches, Zero-Collision 2D Solver, Canvas Resize & Organic View) (Organic View, Canvas-Style Resizing, Branch Labels, Zero-Overlap 2D Solver & Safe Table Preservation)');
+    this.settings = Object.assign({ fileLayouts: {} }, await this.loadData());
+    console.log('Loading CDS Mindmap Suite v1.7.3 (Proportional Radial Sectors, Dedicated Table Branches, Zero-Collision 2D Solver, Canvas Resize & Organic View) (Organic View, Canvas-Style Resizing, Branch Labels, Zero-Overlap 2D Solver & Safe Table Preservation)');
 
     this.registerView(VIEW_TYPE_MINDMAP, (leaf) => new CdsMindmapView(leaf, this));
 
@@ -3231,6 +3450,10 @@ module.exports = class CdsMindmapPlugin extends Plugin {
         }
       })
     );
+  }
+
+  async saveSettings() {
+    await this.saveData(this.settings);
   }
 
   async openActiveNoteAsMindmap() {
