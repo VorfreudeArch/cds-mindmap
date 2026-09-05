@@ -1,9 +1,9 @@
 {
   "id": "cds-mindmap",
   "name": "CDS Mappe Concettuali & Mindmap (MarkMind)",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "minAppVersion": "1.4.0",
-  "description": "Suite professionale Mappe Concettuali: Sistema Anti-conflitto/sovrapposizione, Riconoscimento Titolo vs Capitoli, Parser Tabelle Box-Drawing Unicode, Salto Paragrafo preciso con evidenziazione, Link ipertestuali interattivi e anteprima movimento nodi.",
+  "description": "Suite professionale Mappe Concettuali: Vista Organica libera (senza caselle), Ridimensionamento nodi stile Canvas, Etichette testo su rami, Risoluzione collisioni 2D a zero-sovrapposizione, e preservazione sicura tabelle markdown.",
   "author": "Conce",
   "isDesktopOnly": false
 }
