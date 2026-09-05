@@ -1061,3 +1061,56 @@
 .cds-mm-ext-link:hover {
   text-decoration: underline;
 }
+
+
+/* ==========================================================================
+   CDS Mindmap Pro v1.5.0 (Anti-Collision, Line Pulse, Super-Header, Drag Glow)
+   ========================================================================== */
+
+/* Trascina Nodo Evidente con Anteprima */
+.cds-mm-node.is-dragging-node {
+  box-shadow: 0 16px 45px rgba(56, 189, 248, 0.7) !important;
+  border-color: #38bdf8 !important;
+  cursor: grabbing !important;
+  transform: scale(1.02);
+  transition: transform 0.05s ease;
+}
+
+/* Super Header per Tabelle Box-Drawing */
+.cds-mm-table-super-header {
+  background: rgba(30, 41, 69, 0.98) !important;
+  color: #38bdf8 !important;
+  font-weight: 800 !important;
+  text-align: center !important;
+  letter-spacing: 0.8px !important;
+  font-size: 0.85rem !important;
+  padding: 8px 12px !important;
+  border-bottom: 2px solid rgba(56, 189, 248, 0.5) !important;
+  text-transform: uppercase;
+}
+
+/* Note a piè di pagina e rich links */
+.cds-mm-footnote {
+  color: #a78bfa;
+  font-weight: 700;
+  cursor: pointer;
+  margin-left: 3px;
+  font-size: 0.75rem;
+}
+
+.cds-mm-footnote:hover {
+  color: #c084fc;
+  text-decoration: underline;
+}
+
+/* Evidenziazione a impulso del paragrafo attivo nell'editor Markdown */
+@keyframes cds-pulse-highlight {
+  0% { background: rgba(56, 189, 248, 0.45) !important; border-left: 4px solid #38bdf8 !important; }
+  50% { background: rgba(56, 189, 248, 0.25) !important; }
+  100% { background: transparent !important; }
+}
+
+.cds-mm-line-pulse {
+  animation: cds-pulse-highlight 1.6s ease forwards !important;
+  border-left: 4px solid #38bdf8 !important;
+}

@@ -36,7 +36,7 @@ class MindmapEngine {
     return parentPath ? `${parentPath}_${index}_${clean}` : 'root';
   }
 
-  /**
+    /**
    * Rendering sincrono, immediato e infallibile di Markdown per i nodi
    */
   static renderMiniMarkdown(text) {
@@ -49,7 +49,8 @@ class MindmapEngine {
       .replace(/`([^`]+)`/g, '<code class="cds-mm-code">$1</code>')
       .replace(/\[\[(.*?)\|(.*?)\]\]/g, '<span class="cds-mm-wikilink" data-target="$1">🔗 $2</span>')
       .replace(/\[\[(.*?)\]\]/g, '<span class="cds-mm-wikilink" data-target="$1">🔗 $1</span>')
-      .replace(/\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="cds-mm-ext-link">$1 ↗</a>');
+      .replace(/\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="cds-mm-ext-link">$1 ↗</a>')
+      .replace(/\[\^([^\]]+)\]/g, '<sup class="cds-mm-footnote" data-footnote="$1">[$1]</sup>');
     return res;
   }
 
@@ -63,12 +64,51 @@ class MindmapEngine {
       images.push({ type: 'vault', path: m[1].trim() });
     }
 
-    const mdImgRegex = /!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/gi;
+    const mdImgRegex = /!\[.*?\]\(((?:https?:\/\/|file:\/\/|app:\/\/)[^\s)]+)\)/gi;
     while ((m = mdImgRegex.exec(text)) !== null) {
-      images.push({ type: 'web', path: m[2].trim(), alt: m[1] });
+      images.push({ type: 'url', path: m[1].trim() });
     }
 
     return images;
+  }
+
+  /**
+   * Parser avanzato per Tabelle Box-Drawing Unicode (┌─┬┐, │, ├┼┤, └┴┘)
+   */
+  static parseBoxDrawingTable(lines) {
+    if (!lines || lines.length < 2) return null;
+    const tableLines = lines.filter(l => {
+      const t = l.trim();
+      return (t.startsWith('│') && t.endsWith('│')) || /^[┌├└]/.test(t);
+    });
+    if (tableLines.length < 2) return null;
+
+    const contentLines = tableLines.filter(l => l.trim().startsWith('│') && l.trim().endsWith('│'));
+    if (contentLines.length === 0) return null;
+
+    let title = '';
+    let headers = [];
+    const rows = [];
+
+    for (let i = 0; i < contentLines.length; i++) {
+      const raw = contentLines[i].trim();
+      const inner = raw.slice(1, -1);
+      const cells = inner.split('│').map(c => c.trim());
+
+      if (i === 0 && cells.length === 1 && !cells[0].includes('•')) {
+        title = cells[0];
+      } else if (headers.length === 0 && cells.length > 1) {
+        headers = cells;
+      } else {
+        rows.push(cells);
+      }
+    }
+
+    if (headers.length === 0 && rows.length > 0) {
+      headers = rows.shift();
+    }
+
+    return { title, headers, rows };
   }
 
   static parseMarkdown(mdText, fallbackTitle = 'Mappa Concettuale', filePath = '') {
@@ -99,9 +139,35 @@ class MindmapEngine {
     }
 
     const lines = content.split(/\r?\n/);
+
+    // ANALISI PRELIMINARE: Riconoscimento Document Title vs Capitolo 1
+    const h1List = [];
+    for (let idx = 0; idx < lines.length; idx++) {
+      const m = lines[idx].match(/^#\s+(.*)$/);
+      if (m) h1List.push({ lineIndex: idx, text: m[1].trim() });
+    }
+
+    let docTitle = fallbackTitle;
+    let skipFirstH1AsDocTitle = false;
+
+    if (h1List.length === 1) {
+      const isChapterLike = /(?:capitolo|chapter|cap\.|sezione|modulo|\b[ivxlcdm]+\b|\b\d+\b)/i.test(h1List[0].text);
+      if (!isChapterLike) {
+        docTitle = h1List[0].text;
+        skipFirstH1AsDocTitle = true;
+      }
+    } else if (h1List.length > 1) {
+      const cleanFn = (fallbackTitle || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const cleanFirstH1 = h1List[0].text.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (cleanFn && cleanFirstH1 === cleanFn) {
+        docTitle = h1List[0].text;
+        skipFirstH1AsDocTitle = true;
+      }
+    }
+
     const rootNode = {
       id: 'root',
-      text: fallbackTitle,
+      text: docTitle,
       depth: 0,
       type: 'heading',
       children: [],
@@ -114,14 +180,61 @@ class MindmapEngine {
 
     let currentParentStack = [rootNode];
     let pathStack = ['root'];
-    let foundFirstHeading = false;
 
     const fileCache = filePath ? CUSTOM_POSITIONS_CACHE.get(filePath) || {} : {};
+
+    // Buffer per box drawing tables
+    let boxTableBuffer = null;
 
     for (let i = 0; i < lines.length; i++) {
       const lineNum = lineOffset + i;
       const line = lines[i];
       const trimmed = line.trim();
+
+      // Rilevamento tabelle box-drawing Unicode
+      if (trimmed.startsWith('```') && !boxTableBuffer) {
+        // Possibile inizio blocco tabella
+        if (lines[i + 1] && /^[┌│]/.test(lines[i + 1].trim())) {
+          boxTableBuffer = [];
+          continue;
+        }
+      } else if (trimmed.startsWith('```') && boxTableBuffer) {
+        // Fine blocco tabella
+        const parsed = MindmapEngine.parseBoxDrawingTable(boxTableBuffer);
+        boxTableBuffer = null;
+        if (parsed) {
+          const lastNode = currentParentStack[currentParentStack.length - 1];
+          if (lastNode && !lastNode.isRoot) {
+            lastNode.layout = 'table';
+            lastNode.tableData = parsed;
+          }
+        }
+        continue;
+      } else if (boxTableBuffer) {
+        boxTableBuffer.push(line);
+        continue;
+      } else if (/^[┌│]/.test(trimmed)) {
+        // Tabella box-drawing non racchiusa in codeblock
+        const tableLines = [line];
+        let j = i + 1;
+        while (j < lines.length && /^[┌│├└─┬┼┤┴┘]/.test(lines[j].trim())) {
+          tableLines.push(lines[j]);
+          j++;
+        }
+        if (tableLines.length >= 2) {
+          const parsed = MindmapEngine.parseBoxDrawingTable(tableLines);
+          if (parsed) {
+            const lastNode = currentParentStack[currentParentStack.length - 1];
+            if (lastNode && !lastNode.isRoot) {
+              lastNode.layout = 'table';
+              lastNode.tableData = parsed;
+            }
+            i = j - 1;
+            continue;
+          }
+        }
+      }
+
       if (!trimmed) continue;
 
       if (trimmed.includes('layout: table') || trimmed.includes('layout:table')) {
@@ -148,15 +261,10 @@ class MindmapEngine {
         const level = hMatch[1].length;
         const text = hMatch[2].trim();
 
-        if (!foundFirstHeading && level === 1) {
-          rootNode.text = text;
+        if (skipFirstH1AsDocTitle && level === 1 && i === h1List[0].lineIndex) {
           rootNode.sourceLine = lineNum;
-          foundFirstHeading = true;
-          currentParentStack = [rootNode];
-          pathStack = ['root'];
           continue;
         }
-        foundFirstHeading = true;
 
         while (currentParentStack.length > 1 && currentParentStack[currentParentStack.length - 1].depth >= level) {
           currentParentStack.pop();
@@ -244,6 +352,7 @@ class MindmapEngine {
         continue;
       }
 
+      // Tabelle Markdown standard | col | col |
       if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
         const parent = currentParentStack[currentParentStack.length - 1];
         if (parent && !parent.isRoot) {
@@ -253,7 +362,7 @@ class MindmapEngine {
           }
           const cells = trimmed.split('|').slice(1, -1).map(c => c.trim());
           if (cells.every(c => /^[-:]+$/.test(c))) {
-            // Sep
+            // Separatore
           } else if (parent.tableData.headers.length === 0) {
             parent.tableData.headers = cells;
           } else {
@@ -263,6 +372,7 @@ class MindmapEngine {
         }
       }
 
+      // Paragrafi / testo del nodo corrente
       if (currentParentStack.length > 1) {
         const lastNode = currentParentStack[currentParentStack.length - 1];
         if (lastNode && !lastNode.isRoot) {
@@ -358,6 +468,67 @@ class MindmapEngine {
 
     walk(rootNode, 1);
     return lines.join('\n');
+  }
+
+  /**
+   * Sistema Anticonflitto / Anti-sovrapposizione dei Nodi:
+   * I nodi non possono sovrapporsi, mantengono ordine verticale ed elegante spaziatura.
+   */
+  static resolveCollisions(nodes, minGap = 16) {
+    if (!nodes || nodes.length < 2) return;
+
+    // Root node bounding box
+    const root = nodes.find(n => n.isRoot);
+    const rootBox = root ? {
+      minX: root.x - 40,
+      maxX: root.x + root.width + 40,
+      minY: root.y - 24,
+      maxY: root.y + root.height + 24
+    } : null;
+
+    const leftNodes = nodes.filter(n => !n.isRoot && n.direction === 'left').sort((a, b) => a.y - b.y);
+    const rightNodes = nodes.filter(n => !n.isRoot && n.direction !== 'left').sort((a, b) => a.y - b.y);
+
+    const adjustGroup = (group) => {
+      let changed = true;
+      let iters = 0;
+      while (changed && iters < 30) {
+        changed = false;
+        iters++;
+        for (let i = 0; i < group.length; i++) {
+          const a = group[i];
+
+          // Evita sovrapposizione con il Root
+          if (rootBox && (a.x < rootBox.maxX && a.x + a.width > rootBox.minX) && (a.y < rootBox.maxY && a.y + a.height > rootBox.minY)) {
+            if (a.direction === 'left') {
+              a.x = rootBox.minX - a.width - 20;
+            } else {
+              a.x = rootBox.maxX + 20;
+            }
+            changed = true;
+          }
+
+          for (let j = i + 1; j < group.length; j++) {
+            const b = group[j];
+            const overlapX = (a.x < b.x + b.width + minGap) && (a.x + a.width + minGap > b.x);
+            const overlapY = (a.y < b.y + b.height + minGap) && (a.y + a.height + minGap > b.y);
+
+            if (overlapX && overlapY) {
+              const neededY = a.y + a.height + minGap;
+              if (b.y < neededY) {
+                const diff = neededY - b.y;
+                b.y = neededY;
+                if (b.customY !== undefined) b.customY += diff;
+                changed = true;
+              }
+            }
+          }
+        }
+      }
+    };
+
+    adjustGroup(leftNodes);
+    adjustGroup(rightNodes);
   }
 
   static measureNode(node, detailLevel = 'keypoints') {
@@ -1537,7 +1708,42 @@ class MindmapCanvas {
         }
       }
 
+      // Click delegation per wikilink, collegamenti esterni e note ipertestuali
+      nodeEl.onclick = (ev) => {
+        const wikiLink = ev.target.closest('.cds-mm-wikilink');
+        if (wikiLink) {
+          ev.stopPropagation();
+          ev.preventDefault();
+          const target = wikiLink.getAttribute('data-target');
+          if (target && this.app) {
+            this.app.workspace.openLinkText(target, this.filePath || '', true);
+          }
+          return;
+        }
+
+        const extLink = ev.target.closest('a.cds-mm-ext-link');
+        if (extLink) {
+          ev.stopPropagation();
+          return; // Apre direttamente in browser con target="_blank"
+        }
+
+        const footnote = ev.target.closest('.cds-mm-footnote');
+        if (footnote) {
+          ev.stopPropagation();
+          const fnId = footnote.getAttribute('data-footnote');
+          if (this.options.onNodeClick) {
+            this.options.onNodeClick({ ...node, text: `[^${fnId}]` });
+          }
+          return;
+        }
+      };
+
       nodeEl.onmousedown = (ev) => {
+        if (ev.target.closest('.cds-mm-wikilink') || ev.target.closest('a') || ev.target.closest('.cds-mm-pdf-badge') || ev.target.closest('.cds-mm-fold-btn') || ev.target.closest('.cds-mm-footnote')) {
+          ev.stopPropagation();
+          return;
+        }
+
         ev.stopPropagation();
         this.selectNode(node.id);
 
@@ -1664,6 +1870,12 @@ class MindmapCanvas {
     const tableWrap = nodeEl.createDiv({ cls: 'cds-mm-node-table-embed' });
     const table = tableWrap.createEl('table');
     const thead = table.createEl('thead');
+    if (node.tableData && node.tableData.title) {
+      const trTitle = thead.createEl('tr');
+      const thTitle = trTitle.createEl('th', { attr: { colspan: Math.max(2, (node.tableData.headers || []).length) } });
+      thTitle.className = 'cds-mm-table-super-header';
+      thTitle.textContent = node.tableData.title;
+    }
     const trH = thead.createEl('tr');
 
     const headers = (node.tableData && node.tableData.headers && node.tableData.headers.length)
@@ -1740,6 +1952,14 @@ class MindmapCanvas {
 
     const isTable = rawNode.layout === 'table';
     mkFloatBtn(isTable ? '🧠 Mappa' : '📊 Tabella', isTable ? 'Ritorna a Ramo Mappa' : 'Converti in Tabella', () => this.toggleTableLayoutSelected());
+    
+    if (rawNode.children && rawNode.children.length) {
+      mkFloatBtn(rawNode.collapsed ? '👁️ Mostra' : '👁️ Riduci', rawNode.collapsed ? 'Espandi nodi figli' : 'Riduci e nascondi rami figli', () => {
+        rawNode.collapsed = !rawNode.collapsed;
+        this.render();
+        this.triggerSave();
+      });
+    }
 
     mkFloatBtn('📷 Foto', 'Inserisci Immagine nel nodo', () => this.promptInsertImage(rawNode));
     mkFloatBtn('📄 PDF', 'Collega Documento PDF', () => this.promptInsertPdf(rawNode));
@@ -1982,7 +2202,8 @@ class MindmapCanvas {
 
       if (!s.hasMoved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
         s.hasMoved = true;
-        s.nodeEl.classList.add('is-ghost');
+        s.nodeEl.classList.add('is-dragging-node');
+        s.nodeEl.style.zIndex = '1000';
       }
 
       if (s.hasMoved) {
@@ -2027,7 +2248,8 @@ class MindmapCanvas {
     if (this.draggedNodeState) {
       const s = this.draggedNodeState;
       this.draggedNodeState = null;
-      s.nodeEl.classList.remove('is-ghost');
+      s.nodeEl.classList.remove('is-dragging-node');
+      s.nodeEl.style.zIndex = '';
       document.querySelectorAll('.cds-mm-node.is-drop-target').forEach(el => el.classList.remove('is-drop-target'));
 
       if (s.hasMoved) {
@@ -2594,7 +2816,7 @@ class CdsMindmapView extends ItemView {
 
 module.exports = class CdsMindmapPlugin extends Plugin {
   async onload() {
-    console.log('Loading CDS Mindmap Suite v1.4.0 (Sync Rich MD, Print Frame Overlay, Title Block & Vector SVG)');
+    console.log('Loading CDS Mindmap Suite v1.5.0 (Anti-Collision, Box Tables, Doc Title vs Chapter, Accurate Para Jump & Clickable Links)');
 
     this.registerView(VIEW_TYPE_MINDMAP, (leaf) => new CdsMindmapView(leaf, this));
 
