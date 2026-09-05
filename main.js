@@ -55,7 +55,7 @@ class MindmapEngine {
     return null;
   }
 
-  // RE-INIEZIONE PERSISTENTE DEI NODI CREATI DA CANVAS (v1.7.9 Multi-Pass & Fallback)
+  // RE-INIEZIONE PERSISTENTE DEI NODI CREATI DA CANVAS (v1.8.0 Multi-Pass & Fallback)
   static reinjectAddedNodes(rootNode, filePath) {
     if (!filePath) return;
     const layoutData = CUSTOM_POSITIONS_CACHE.get(filePath + '_layout');
@@ -488,7 +488,7 @@ class MindmapEngine {
       }
     }
 
-    // RE-INIEZIONE PERSISTENTE DEI NODI CREATI DA CANVAS (v1.7.9 Multi-Pass Infallibile)
+    // RE-INIEZIONE PERSISTENTE DEI NODI CREATI DA CANVAS (v1.8.0 Multi-Pass Infallibile)
     MindmapEngine.reinjectAddedNodes(rootNode, filePath);
     return rootNode;
   }
@@ -696,7 +696,7 @@ class MindmapEngine {
     } else {
       const hasFullText = (detailLevel === 'full' || node.isExpanded) && node.bodyText && node.bodyText.trim();
       if (hasFullText) {
-        // Ottimizzazione proporzionata della larghezza del nodo (v1.7.9):
+        // Ottimizzazione proporzionata della larghezza del nodo (v1.8.0):
         // Nodi con testi corposi si espandono orizzontalmente fino a 500-520px
         // per evitare fastidiose "torri verticali" che allungano a dismisura la mappa
         const bodyLen = node.bodyText.length;
@@ -755,13 +755,13 @@ class MindmapEngine {
     return { width: node.width, height: node.height };
   }
 
-  // Helper diramazione a ventaglio su più colonne (v1.7.9)
+  // Helper diramazione a ventaglio su più colonne (v1.8.0)
   static canFanOut(children) {
     if (!children || children.length < 5) return false;
     return true;
   }
 
-  static computeSubtreeHeight(node, verticalGap = 38, horizontalGap = 130) {
+  static computeSubtreeHeight(node, verticalGap = 22, horizontalGap = 75) {
     const selfH = (node.height || 54);
     if (!node.children || !node.children.length || node.layout === 'table' || node.collapsed) {
       node.subtreeHeight = selfH + verticalGap;
@@ -892,11 +892,11 @@ class MindmapEngine {
   }
 
   // ==========================================================================
-  // LAYOUT 2: BILATERALE AD AMPIA SPAZIATURA, BILANCIAMENTO GREEDY E DIRAMAZIONE ORIZZONTALE (v1.7.9)
+  // LAYOUT 2: BILATERALE AD AMPIA SPAZIATURA, BILANCIAMENTO GREEDY E DIRAMAZIONE ORIZZONTALE (v1.8.0)
   // ==========================================================================
   static computeBilateralLayout(rootNode, options = {}) {
-    const horizontalGap = options.horizontalGap || 135;
-    const verticalGap = options.verticalGap || 38;
+    const horizontalGap = options.horizontalGap || 75;
+    const verticalGap = options.verticalGap || 22;
     const connectorStyle = options.connectorStyle || 'curved';
     const detailLevel = options.detailLevel || 'keypoints';
 
@@ -907,7 +907,7 @@ class MindmapEngine {
     const rightChildren = [];
     const leftChildren = [];
 
-    // Algoritmo Greedy Bin-Packing (v1.7.9): bilancia l'altezza totale dei rami tra Sinistra e Destra
+    // Algoritmo Greedy Bin-Packing (v1.8.0): bilancia l'altezza totale dei rami tra Sinistra e Destra
     // per evitare mappe sbilanciate e sviluppi verticali chilometrici
     const unassigned = [];
     children.forEach(c => {
@@ -918,7 +918,7 @@ class MindmapEngine {
 
     unassigned.sort((a, b) => (b.subtreeHeight || 0) - (a.subtreeHeight || 0));
 
-    const chapterGap = 65;
+    const chapterGap = options.chapterGap || 42;
     let totalRightH = rightChildren.reduce((sum, c) => sum + (c.subtreeHeight || 0) + chapterGap, 0);
     let totalLeftH = leftChildren.reduce((sum, c) => sum + (c.subtreeHeight || 0) + chapterGap, 0);
 
@@ -1015,18 +1015,17 @@ class MindmapEngine {
   }
 
   // ==========================================================================
-  // LAYOUT 3: DESTRA AD ALBERO CON DIRAMAZIONE ORIZZONTALE (v1.7.9)
+  // LAYOUT 3: DESTRA AD ALBERO CON DIRAMAZIONE ORIZZONTALE (v1.8.0)
   // ==========================================================================
   static computeRightLayout(rootNode, options = {}) {
-    const horizontalGap = options.horizontalGap || 135;
-    const verticalGap = options.verticalGap || 38;
+    const horizontalGap = options.horizontalGap || 75;
+    const verticalGap = options.verticalGap || 22;
+    const chapterGap = options.chapterGap || 42;
     const connectorStyle = options.connectorStyle || 'curved';
     const detailLevel = options.detailLevel || 'keypoints';
 
     MindmapEngine.measureNode(rootNode, detailLevel);
     MindmapEngine.computeSubtreeHeight(rootNode, verticalGap, horizontalGap);
-
-    const chapterGap = 65;
     let totalH = 0;
     (rootNode.children || []).forEach(c => totalH += ((c.subtreeHeight || 0) + chapterGap));
 
@@ -1082,7 +1081,7 @@ class MindmapEngine {
     const isRight = direction === 'right';
     const numCols = parent.fannedCols || 1;
 
-    // DIRAMAZIONE MULTI-COLONNA (v1.7.9): distribuisce liste ed elenchi lunghi a ventaglio orizzontale
+    // DIRAMAZIONE MULTI-COLONNA (v1.8.0): distribuisce liste ed elenchi lunghi a ventaglio orizzontale
     if (numCols > 1 && MindmapEngine.canFanOut(parent.children)) {
       const itemsPerCol = Math.ceil(parent.children.length / numCols);
       let startY = parent.y + (parent.height / 2) - (parent.subtreeHeight / 2);
@@ -1363,7 +1362,7 @@ class MindmapExportModal extends Modal {
     this.bgStyle = 'dark';
     this.qualityDpi = 2;
 
-    // v1.7.9: Densità Contenuto ed Esportazione
+    // v1.8.0: Densità Contenuto ed Esportazione
     this.exportDetailLevel = this.canvas.detailLevel || 'full';
     this.textLegibility = 'optimal'; // 'optimal' (1.35x) | 'large' (1.7x) | 'compact' (1.0x)
 
@@ -1505,7 +1504,7 @@ class MindmapExportModal extends Modal {
     // Suggerimento Orientamento Automatico
     this.orientNoticeBox = secDoc.createDiv({ cls: 'cds-mm-orient-notice-box' });
 
-    // DENSITÀ CONTENUTO PER LA STAMPA (v1.7.9)
+    // DENSITÀ CONTENUTO PER LA STAMPA (v1.8.0)
     secDoc.createEl('label', { text: 'Densità Contenuti da Stampare:', cls: 'cds-mm-export-label' });
     const detailSelect = secDoc.createEl('select', { cls: 'cds-mm-export-select' });
     [
@@ -1522,7 +1521,7 @@ class MindmapExportModal extends Modal {
       this.updatePreview();
     };
 
-    // SCALA TIPOGRAFICA / LEGGIBILITÀ (v1.7.9)
+    // SCALA TIPOGRAFICA / LEGGIBILITÀ (v1.8.0)
     secDoc.createEl('label', { text: 'Dimensione Testo su Carta (Leggibilità):', cls: 'cds-mm-export-label' });
     const legSelect = secDoc.createEl('select', { cls: 'cds-mm-export-select' });
     [
@@ -1769,7 +1768,7 @@ class MindmapExportModal extends Modal {
     });
     bDownload.onclick = () => this.doExport();
 
-    // Colonna Destra Anteprima Ampia con Toolbar di Zoom (v1.7.9)
+    // Colonna Destra Anteprima Ampia con Toolbar di Zoom (v1.8.0)
     const rightCol = layoutWrap.createDiv({ cls: 'cds-mm-export-right-col' });
 
     const previewToolbar = rightCol.createDiv({ cls: 'cds-mm-preview-toolbar' });
@@ -2644,13 +2643,21 @@ class MindmapCanvas {
     this.viewMode = options.viewMode || 'radial';
     this.detailLevel = options.detailLevel || 'keypoints';
 
-    // v1.7.9: Stile connettori, ripasso attivo e breadcrumb glow
+    // v1.8.0: Stile connettori, ripasso attivo e breadcrumb glow
     this.connectorStyle = options.connectorStyle || 'curved';
     this.theme = options.theme || (this.plugin && this.plugin.settings && this.plugin.settings.theme) || 'dark';
     this.isDockCollapsed = false;
     this.isStudyMode = false;
     this.revealedNodes = new Set();
     this.hoveredNodeId = null;
+
+    // v1.8.0: Densità spaziatura, Selezione Multipla e Gruppi Canvas
+    this.spacingDensity = options.spacingDensity || 'compact'; // 'compact' | 'ultra-compact' | 'standard'
+    this.selectedNodeIds = new Set();
+    this.groups = [];
+    this.isMarquee = false;
+    this.marqueeStart = null;
+    this.draggedGroupState = null;
 
     this.panX = 0;
     this.panY = 0;
@@ -2669,6 +2676,8 @@ class MindmapCanvas {
     if (this.plugin && this.plugin.settings && this.plugin.settings.fileLayouts && this.filePath) {
       const saved = this.plugin.settings.fileLayouts[this.filePath];
       if (saved) {
+        if (saved.spacingDensity) this.spacingDensity = saved.spacingDensity;
+        if (saved.groups && Array.isArray(saved.groups)) this.groups = saved.groups;
         this.applySavedLayout(saved);
       }
     }
@@ -2695,15 +2704,25 @@ class MindmapCanvas {
     this.sheetOverlayEl = this.stage.createDiv({ cls: 'cds-mm-sheet-overlay' });
     this.sheetOverlayEl.style.display = 'none';
 
+    // Layer Gruppi Canvas (v1.8.0)
+    this.groupsLayer = this.stage.createDiv({ cls: 'cds-mm-groups-layer' });
+
     this.svgLayer = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     this.svgLayer.setAttribute('class', 'cds-mm-svg');
     this.stage.appendChild(this.svgLayer);
+
+    // Layer Controlli Tratti / Bottoni + sul ramo (v1.8.0)
+    this.edgesControlsLayer = this.stage.createDiv({ cls: 'cds-mm-edges-layer' });
 
     this.nodesLayer = this.stage.createDiv({ cls: 'cds-mm-nodes-layer' });
 
     // Floating Bar contestuale sul nodo selezionato
     this.floatingBar = this.stage.createDiv({ cls: 'cds-mm-floating-bar' });
     this.floatingBar.style.display = 'none';
+
+    // Floating Toolbar Selezione Multipla (v1.8.0)
+    this.multiSelectToolbar = this.container.createDiv({ cls: 'cds-mm-multi-toolbar' });
+    this.multiSelectToolbar.style.display = 'none';
 
     // 3. MINIMAP RADAR
     this.minimapWrap = this.container.createDiv({ cls: 'cds-mm-minimap' });
@@ -2832,7 +2851,7 @@ class MindmapCanvas {
     mkViewBtn('table', 'Tabella', '📊');
     mkViewBtn('outline', 'Outline', '📑');
 
-    // Selettore Temi Visivi Architetturali (v1.7.9)
+    // Selettore Temi Visivi Architetturali (v1.8.0)
     const themeLabels = { dark: 'Scuro', blueprint: 'CAD Blueprint', light: 'Carta' };
     const btnTheme = groupViews.createEl('button', {
       cls: 'cds-mm-dock-btn',
@@ -2885,6 +2904,29 @@ class MindmapCanvas {
       btnOrganic.classList.toggle('is-active', this.isOrganicView);
       this.saveLayoutMemory();
       this.render();
+    };
+
+    // DENSITÀ SPAZIATURA (v1.8.0 Anti-Spazio Vuoto)
+    const densityLabels = {
+      compact: '📏 Compatto',
+      'ultra-compact': '⚡ Ultra',
+      standard: '📐 Ampio'
+    };
+    const btnDensity = groupStyle.createEl('button', {
+      cls: 'cds-mm-dock-btn',
+      attr: { title: 'Densità spaziatura: Compatto (Zero Vuoto), Ultra-Compatto o Ampio Standard' }
+    });
+    btnDensity.innerHTML = `${densityLabels[this.spacingDensity] || '📏 Compatto'}`;
+    btnDensity.onmousedown = (e) => e.stopPropagation();
+    btnDensity.onclick = (e) => {
+      e.stopPropagation();
+      const densities = ['compact', 'ultra-compact', 'standard'];
+      const nextIdx = (densities.indexOf(this.spacingDensity || 'compact') + 1) % densities.length;
+      this.spacingDensity = densities[nextIdx];
+      btnDensity.innerHTML = densityLabels[this.spacingDensity];
+      this.saveLayoutMemory();
+      this.render();
+      new Notice('📏 Spaziatura: ' + this.spacingDensity.toUpperCase());
     };
 
     // Dettaglio
@@ -3099,8 +3141,22 @@ class MindmapCanvas {
 
     const activeTree = MindmapEngine.filterTreeByDetail(this.rawRootNode, this.detailLevel);
 
+    // Calcolo spaziature dinamiche in base alla densità selezionata (v1.8.0)
+    let hGap = 75, vGap = 22, cGap = 42;
+    if (this.spacingDensity === 'ultra-compact') {
+      hGap = 55; vGap = 16; cGap = 28;
+    } else if (this.spacingDensity === 'standard') {
+      hGap = 125; vGap = 36; cGap = 55;
+    }
+
     let layout;
-    const layoutOpts = { detailLevel: this.detailLevel, connectorStyle: this.connectorStyle };
+    const layoutOpts = {
+      detailLevel: this.detailLevel,
+      connectorStyle: this.connectorStyle,
+      horizontalGap: hGap,
+      verticalGap: vGap,
+      chapterGap: cGap
+    };
     if (this.viewMode === 'radial') {
       layout = MindmapEngine.computeRadialLayout(activeTree, layoutOpts);
     } else if (this.viewMode === 'bilateral') {
@@ -3111,6 +3167,9 @@ class MindmapCanvas {
 
     this.renderedNodes = layout.nodes;
     this.renderedPaths = layout.paths;
+
+    // Render Gruppi Canvas (v1.8.0)
+    this.renderGroups();
 
     while (this.svgLayer.firstChild) {
       this.svgLayer.removeChild(this.svgLayer.firstChild);
@@ -3127,6 +3186,9 @@ class MindmapCanvas {
       pathEl.setAttribute('data-to', p.toId);
       this.svgLayer.appendChild(pathEl);
     }
+
+    // Render Controlli Tratti / Bottoni + sul ramo (v1.8.0)
+    this.renderEdgeControls();
 
     this.nodesLayer.empty();
     let selectedNodeEl = null;
@@ -3276,7 +3338,7 @@ class MindmapCanvas {
           };
         }
 
-        // AZIONI RAPIDE INTEGRATE DIRETTAMENTE NEL NODO (v1.7.9)
+        // AZIONI RAPIDE INTEGRATE DIRETTAMENTE NEL NODO (v1.8.0)
         const nodeActions = nodeEl.createDiv({ cls: 'cds-mm-node-actions' });
         
         const btnChild = nodeActions.createEl('button', {
@@ -3627,7 +3689,7 @@ class MindmapCanvas {
     mkFloatBtn('➕ Figlio', 'Aggiungi nodo figlio (Tab)', () => this.addChildToSelected());
     mkFloatBtn('⏬ Fratello', 'Aggiungi nodo fratello (Enter)', () => this.addSiblingToSelected());
 
-    // Palette Colori per il nodo (v1.7.9)
+    // Palette Colori per il nodo (v1.8.0)
     const colorGroup = this.floatingBar.createDiv({ cls: 'cds-mm-float-color-group' });
     colorGroup.style.cssText = 'display:flex;align-items:center;gap:3px;margin:0 4px;';
     const pal = [
@@ -3892,6 +3954,24 @@ class MindmapCanvas {
     const rawNode = this.findRawNode(node.id);
     if (!rawNode) return;
 
+    // Raccoglie tutti i nodi selezionati se siamo in modalità Multi-Selezione (v1.8.0)
+    const multiGroup = [];
+    if (this.selectedNodeIds && this.selectedNodeIds.has(node.id) && this.selectedNodeIds.size > 1) {
+      for (const id of this.selectedNodeIds) {
+        const n = this.renderedNodes.find(item => item.id === id);
+        const el = this.nodesLayer.querySelector(`[data-id="${id}"]`) || this.nodesLayer.querySelector(`[data-node-id="${id}"]`);
+        if (n) {
+          multiGroup.push({
+            node: n,
+            el: el || null,
+            origX: n.x,
+            origY: n.y,
+            rawNode: this.findRawNode(id)
+          });
+        }
+      }
+    }
+
     this.draggedNodeState = {
       node,
       rawNode,
@@ -3901,7 +3981,8 @@ class MindmapCanvas {
       nodeOrigX: node.x,
       nodeOrigY: node.y,
       hasMoved: false,
-      descendants: this.collectDescendants(node)
+      descendants: this.collectDescendants(node),
+      multiGroup
     };
   }
 
@@ -3919,6 +4000,33 @@ class MindmapCanvas {
   }
 
   onMouseMove(ev) {
+    if (this.isMarquee && this.marqueeStart) {
+      const rect = this.stage.getBoundingClientRect();
+      const curX = (ev.clientX - rect.left) / this.zoom;
+      const curY = (ev.clientY - rect.top) / this.zoom;
+      const boxX = Math.min(this.marqueeStart.x, curX);
+      const boxY = Math.min(this.marqueeStart.y, curY);
+      const boxW = Math.abs(curX - this.marqueeStart.x);
+      const boxH = Math.abs(curY - this.marqueeStart.y);
+
+      this.marqueeEl.style.left = `${boxX}px`;
+      this.marqueeEl.style.top = `${boxY}px`;
+      this.marqueeEl.style.width = `${boxW}px`;
+      this.marqueeEl.style.height = `${boxH}px`;
+
+      for (const n of this.renderedNodes) {
+        const intersects = !(n.x > boxX + boxW || 
+                             n.x + n.width < boxX || 
+                             n.y > boxY + boxH || 
+                             n.y + n.height < boxY);
+        if (intersects) {
+          this.selectedNodeIds.add(n.id);
+        }
+      }
+      this.updateSelectionVisuals();
+      return;
+    }
+
     if (this.isDraggingCanvas) {
       this.panX = ev.clientX - this.dragStart.x;
       this.panY = ev.clientY - this.dragStart.y;
@@ -3939,24 +4047,39 @@ class MindmapCanvas {
       }
 
       if (s.hasMoved) {
-        const newX = s.nodeOrigX + dx;
-        const newY = s.nodeOrigY + dy;
-        s.node.x = newX;
-        s.node.y = newY;
-        s.nodeEl.style.left = `${newX}px`;
-        s.nodeEl.style.top = `${newY}px`;
-
-        for (const desc of s.descendants) {
-          desc.node.x = desc.origX + dx;
-          desc.node.y = desc.origY + dy;
-          const el = this.nodesLayer.querySelector(`[data-node-id="${desc.node.id}"]`);
-          if (el) {
-            el.style.left = `${desc.node.x}px`;
-            el.style.top = `${desc.node.y}px`;
+        if (s.multiGroup && s.multiGroup.length > 1) {
+          // Spostamento simultaneo di tutti i nodi selezionati (v1.8.0 Multi-Drag)
+          for (const item of s.multiGroup) {
+            item.node.x = Math.round(item.origX + dx);
+            item.node.y = Math.round(item.origY + dy);
+            item.el.style.left = `${item.node.x}px`;
+            item.el.style.top = `${item.node.y}px`;
           }
-        }
+          this.updateBranchPathsRealtime();
+          this.updateGroupsRealtime();
+          this.renderEdgeControls();
+        } else {
+          const newX = Math.round(s.nodeOrigX + dx);
+          const newY = Math.round(s.nodeOrigY + dy);
+          s.node.x = newX;
+          s.node.y = newY;
+          s.nodeEl.style.left = `${newX}px`;
+          s.nodeEl.style.top = `${newY}px`;
 
-        this.updateBranchPathsRealtime();
+          for (const desc of s.descendants) {
+            desc.node.x = Math.round(desc.origX + dx);
+            desc.node.y = Math.round(desc.origY + dy);
+            const el = this.nodesLayer.querySelector(`[data-id="${desc.node.id}"]`) || this.nodesLayer.querySelector(`[data-node-id="${desc.node.id}"]`);
+            if (el) {
+              el.style.left = `${desc.node.x}px`;
+              el.style.top = `${desc.node.y}px`;
+            }
+          }
+
+          this.updateBranchPathsRealtime();
+          this.updateGroupsRealtime();
+          this.renderEdgeControls();
+        }
 
         const els = document.elementsFromPoint(ev.clientX, ev.clientY);
         const targetEl = els.find(el => el.classList && el.classList.contains('cds-mm-node') && el !== s.nodeEl);
@@ -3972,6 +4095,15 @@ class MindmapCanvas {
   }
 
   onMouseUp(ev) {
+    if (this.isMarquee) {
+      this.isMarquee = false;
+      if (this.marqueeEl) {
+        this.marqueeEl.style.display = 'none';
+      }
+      this.updateSelectionVisuals();
+      this.updateMultiSelectToolbar();
+    }
+
     if (this.isDraggingCanvas) {
       this.isDraggingCanvas = false;
       this.viewport.removeClass('is-dragging');
@@ -4121,6 +4253,341 @@ class MindmapCanvas {
     this.render();
   }
 
+
+  // ==========================================================================
+  // METODI v1.8.0: AGGIUNTA NODI NEL TRATTO, SELEZIONE MULTIPLA E GRUPPI
+  // ==========================================================================
+  renderEdgeControls() {
+    if (!this.edgesControlsLayer) return;
+    this.edgesControlsLayer.empty();
+    if (!this.renderedPaths || !this.renderedPaths.length) return;
+
+    for (const p of this.renderedPaths) {
+      const fromNode = this.renderedNodes.find(n => n.id === p.fromId);
+      const toNode = this.renderedNodes.find(n => n.id === p.toId);
+      if (!fromNode || !toNode) continue;
+
+      const isRight = (toNode.x + toNode.width / 2) >= (fromNode.x + fromNode.width / 2);
+      const startX = isRight ? fromNode.x + fromNode.width : fromNode.x;
+      const startY = fromNode.y + fromNode.height / 2;
+      const targetX = isRight ? toNode.x : toNode.x + toNode.width;
+      const targetY = toNode.y + toNode.height / 2;
+      const midX = Math.round((startX + targetX) / 2);
+      const midY = Math.round((startY + targetY) / 2);
+
+      const btn = this.edgesControlsLayer.createDiv({ cls: 'cds-mm-edge-add-btn' });
+      btn.style.left = `${midX - 11}px`;
+      btn.style.top = `${midY - 11}px`;
+      btn.setAttribute('title', '➕ Inserisci concetto in questo tratto');
+      btn.innerHTML = '+';
+      btn.onmousedown = (e) => { e.stopPropagation(); e.preventDefault(); };
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        this.insertNodeOnEdge(p.fromId, p.toId, midX, midY);
+      };
+    }
+  }
+
+  insertNodeOnEdge(fromId, toId, midX, midY) {
+    const fromRaw = this.findRawNode(fromId);
+    const toRaw = this.findRawNode(toId);
+    if (!fromRaw || !toRaw) return;
+
+    const newNodeId = 'node_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    const newNode = {
+      id: newNodeId,
+      text: 'Nuovo Concetto',
+      depth: (fromRaw.depth || 0) + 1,
+      type: 'keypoint',
+      children: [toRaw],
+      collapsed: false,
+      customX: Math.round(midX - 90),
+      customY: Math.round(midY - 25),
+      isCanvasAdded: true,
+      bodyText: ''
+    };
+
+    if (!fromRaw.children) fromRaw.children = [];
+    const idx = fromRaw.children.findIndex(c => c.id === toId);
+    if (idx !== -1) {
+      fromRaw.children[idx] = newNode;
+    } else {
+      fromRaw.children.push(newNode);
+    }
+    toRaw.depth = newNode.depth + 1;
+
+    this.saveLayoutMemory();
+    this.render();
+
+    this.selectedNodeId = newNodeId;
+    this.selectedNodeIds = new Set([newNodeId]);
+    this.updateSelectionVisuals();
+
+    const newEl = this.nodesLayer.querySelector(`[data-id="${newNodeId}"]`) || this.nodesLayer.querySelector(`[data-node-id="${newNodeId}"]`);
+    if (newEl) {
+      this.startEditing(newNode, newEl);
+    }
+    new Notice('➕ Concetto inserito nel tratto! Scrivi il titolo e premi Invio.');
+  }
+
+  updateSelectionVisuals() {
+    this.nodesLayer.querySelectorAll('.cds-mm-node').forEach(el => {
+      const id = el.getAttribute('data-id') || el.getAttribute('data-node-id');
+      if (this.selectedNodeIds && this.selectedNodeIds.has(id)) {
+        el.classList.add('is-multi-selected');
+      } else {
+        el.classList.remove('is-multi-selected');
+      }
+    });
+  }
+
+  updateMultiSelectToolbar() {
+    if (!this.multiSelectToolbar) return;
+    if (!this.selectedNodeIds || this.selectedNodeIds.size <= 1) {
+      this.multiSelectToolbar.style.display = 'none';
+      return;
+    }
+
+    this.multiSelectToolbar.style.display = 'flex';
+    this.multiSelectToolbar.empty();
+
+    const countBadge = this.multiSelectToolbar.createDiv({ cls: 'cds-mm-multi-badge' });
+    countBadge.innerHTML = `🎯 <b>${this.selectedNodeIds.size}</b> nodi selezionati`;
+
+    // Pulsante Crea Gruppo
+    const btnGroup = this.multiSelectToolbar.createEl('button', { cls: 'cds-mm-btn-primary' });
+    btnGroup.innerHTML = '📦 Raggruppa';
+    btnGroup.title = 'Raggruppa i nodi selezionati in un riquadro / frame';
+    btnGroup.onclick = (e) => {
+      e.stopPropagation();
+      this.createGroupFromSelection();
+    };
+
+    // Pulsante Colora Insieme
+    const btnColor = this.multiSelectToolbar.createEl('button', { cls: 'cds-mm-btn-secondary' });
+    btnColor.innerHTML = '🎨 Colora';
+    btnColor.title = 'Applica colore a tutti i nodi selezionati';
+    btnColor.onclick = (e) => {
+      e.stopPropagation();
+      this.colorSelection();
+    };
+
+    // Pulsante Deseleziona
+    const btnClear = this.multiSelectToolbar.createEl('button', { cls: 'cds-mm-mini-btn' });
+    btnClear.innerHTML = '✕ Deseleziona';
+    btnClear.onclick = (e) => {
+      e.stopPropagation();
+      this.selectedNodeIds.clear();
+      this.updateSelectionVisuals();
+      this.updateMultiSelectToolbar();
+    };
+  }
+
+  createGroupFromSelection() {
+    if (!this.selectedNodeIds || this.selectedNodeIds.size === 0) return;
+    const title = prompt('Nome del nuovo gruppo:', `Gruppo (${this.selectedNodeIds.size} concetti)`);
+    if (!title) return;
+
+    const grp = {
+      id: 'grp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      label: title,
+      color: '#38bdf8',
+      nodeIds: Array.from(this.selectedNodeIds)
+    };
+
+    if (!this.groups) this.groups = [];
+    this.groups.push(grp);
+    this.saveLayoutMemory();
+    this.render();
+    new Notice(`📦 Gruppo "${title}" creato con ${grp.nodeIds.length} concetti!`);
+  }
+
+  colorSelection() {
+    if (!this.selectedNodeIds || this.selectedNodeIds.size === 0) return;
+    const palette = ['#38bdf8', '#818cf8', '#34d399', '#fbbf24', '#f87171', '#a78bfa'];
+    const randomCol = palette[Math.floor(Math.random() * palette.length)];
+
+    for (const id of this.selectedNodeIds) {
+      const raw = this.findRawNode(id);
+      if (raw) raw.customColor = randomCol;
+    }
+    this.saveLayoutMemory();
+    this.render();
+    new Notice(`🎨 Colore applicato a ${this.selectedNodeIds.size} nodi!`);
+  }
+
+  renderGroups() {
+    if (!this.groupsLayer) return;
+    this.groupsLayer.empty();
+    if (!this.groups || !this.groups.length) return;
+
+    for (const grp of this.groups) {
+      const memberNodes = this.renderedNodes.filter(n => grp.nodeIds.includes(n.id));
+      if (!memberNodes.length) continue;
+
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const n of memberNodes) {
+        minX = Math.min(minX, n.x);
+        minY = Math.min(minY, n.y);
+        maxX = Math.max(maxX, n.x + n.width);
+        maxY = Math.max(maxY, n.y + n.height);
+      }
+
+      const pad = 24;
+      const headerH = 34;
+      const gx = Math.round(minX - pad);
+      const gy = Math.round(minY - pad - headerH);
+      const gw = Math.round((maxX - minX) + pad * 2);
+      const gh = Math.round((maxY - minY) + pad * 2 + headerH);
+
+      const grpEl = this.groupsLayer.createDiv({ cls: 'cds-mm-group-box' });
+      grpEl.setAttribute('data-group-id', grp.id);
+      grpEl.style.left = `${gx}px`;
+      grpEl.style.top = `${gy}px`;
+      grpEl.style.width = `${gw}px`;
+      grpEl.style.height = `${gh}px`;
+      grpEl.style.borderColor = grp.color || '#38bdf8';
+      grpEl.style.backgroundColor = (grp.color || '#38bdf8') + '12';
+
+      // Header Gruppo
+      const headerEl = grpEl.createDiv({ cls: 'cds-mm-group-header' });
+      headerEl.style.backgroundColor = (grp.color || '#38bdf8') + '25';
+      headerEl.style.borderBottomColor = (grp.color || '#38bdf8') + '40';
+
+      const titleEl = headerEl.createSpan({ cls: 'cds-mm-group-title', text: `📦 ${grp.label}` });
+      titleEl.title = 'Doppio clic per rinominare il gruppo';
+      titleEl.ondblclick = (e) => {
+        e.stopPropagation();
+        const newLabel = prompt('Modifica nome del gruppo:', grp.label);
+        if (newLabel) {
+          grp.label = newLabel;
+          this.saveLayoutMemory();
+          this.render();
+        }
+      };
+
+      const actionsEl = headerEl.createDiv({ cls: 'cds-mm-group-actions' });
+      // Cambia colore
+      const colBtn = actionsEl.createEl('button', { cls: 'cds-mm-group-btn', text: '🎨', attr: { title: 'Cambia colore gruppo' } });
+      colBtn.onclick = (e) => {
+        e.stopPropagation();
+        const palette = ['#38bdf8', '#818cf8', '#34d399', '#fbbf24', '#f87171', '#a78bfa'];
+        const curIdx = palette.indexOf(grp.color || '#38bdf8');
+        grp.color = palette[(curIdx + 1) % palette.length];
+        this.saveLayoutMemory();
+        this.render();
+      };
+
+      // Rimuovi gruppo
+      const delBtn = actionsEl.createEl('button', { cls: 'cds-mm-group-btn', text: '✕', attr: { title: 'Rimuovi gruppo (mantieni i nodi)' } });
+      delBtn.onclick = (e) => {
+        e.stopPropagation();
+        this.groups = this.groups.filter(g => g.id !== grp.id);
+        this.saveLayoutMemory();
+        this.render();
+        new Notice('Gruppo rimosso (i nodi sono stati mantenuti).');
+      };
+
+      // Trascinando l'header del gruppo si spostano tutti i nodi membri
+      headerEl.onmousedown = (e) => {
+        if (e.target.tagName === 'BUTTON') return;
+        e.stopPropagation();
+        this.initGroupDrag(grp, memberNodes, e);
+      };
+    }
+  }
+
+  updateGroupsRealtime() {
+    if (!this.groups || !this.groups.length || !this.groupsLayer) return;
+    for (const grp of this.groups) {
+      const el = this.groupsLayer.querySelector(`[data-group-id="${grp.id}"]`);
+      if (!el) continue;
+      const members = this.renderedNodes.filter(n => grp.nodeIds.includes(n.id));
+      if (!members.length) continue;
+
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const n of members) {
+        minX = Math.min(minX, n.x);
+        minY = Math.min(minY, n.y);
+        maxX = Math.max(maxX, n.x + n.width);
+        maxY = Math.max(maxY, n.y + n.height);
+      }
+
+      const pad = 24;
+      const headerH = 34;
+      el.style.left = `${Math.round(minX - pad)}px`;
+      el.style.top = `${Math.round(minY - pad - headerH)}px`;
+      el.style.width = `${Math.round((maxX - minX) + pad * 2)}px`;
+      el.style.height = `${Math.round((maxY - minY) + pad * 2 + headerH)}px`;
+    }
+  }
+
+  initGroupDrag(grp, memberNodes, ev) {
+    const startItems = memberNodes.map(n => {
+      const el = this.nodesLayer.querySelector(`[data-id="${n.id}"]`) || this.nodesLayer.querySelector(`[data-node-id="${n.id}"]`);
+      return {
+        node: n,
+        el,
+        origX: n.x,
+        origY: n.y,
+        rawNode: this.findRawNode(n.id)
+      };
+    });
+
+    this.draggedGroupState = {
+      grp,
+      startItems,
+      startX: ev.clientX,
+      startY: ev.clientY,
+      hasMoved: false
+    };
+
+    const onMove = (e) => {
+      if (!this.draggedGroupState) return;
+      const gs = this.draggedGroupState;
+      const dx = (e.clientX - gs.startX) / this.zoom;
+      const dy = (e.clientY - gs.startY) / this.zoom;
+
+      if (!gs.hasMoved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+        gs.hasMoved = true;
+      }
+
+      if (gs.hasMoved) {
+        for (const item of gs.startItems) {
+          item.node.x = Math.round(item.origX + dx);
+          item.node.y = Math.round(item.origY + dy);
+          if (item.el) {
+            item.el.style.left = `${item.node.x}px`;
+            item.el.style.top = `${item.node.y}px`;
+          }
+        }
+        this.updateBranchPathsRealtime();
+        this.updateGroupsRealtime();
+        this.renderEdgeControls();
+      }
+    };
+
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      if (this.draggedGroupState && this.draggedGroupState.hasMoved) {
+        for (const item of this.draggedGroupState.startItems) {
+          if (item.rawNode) {
+            item.rawNode.customX = item.node.x;
+            item.rawNode.customY = item.node.y;
+          }
+        }
+        this.saveLayoutMemory();
+        this.render();
+      }
+      this.draggedGroupState = null;
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+
   async saveLayoutMemory() {
     if (!this.plugin || !this.filePath) return;
     if (!this.plugin.settings) this.plugin.settings = { fileLayouts: {} };
@@ -4183,6 +4650,8 @@ class MindmapCanvas {
       connectorStyle: this.connectorStyle,
       theme: this.theme,
       isOrganicView: !!this.isOrganicView,
+      spacingDensity: this.spacingDensity,
+      groups: this.groups || [],
       panX: Math.round(this.panX),
       panY: Math.round(this.panY),
       zoom: Number(this.zoom.toFixed(2)),
@@ -4646,11 +5115,33 @@ class MindmapCanvas {
   }
 
   onMouseDown(e) {
-    if (e.target.closest('.cds-mm-node') || e.target.closest('.cds-mm-top-dock') || e.target.closest('.cds-mm-floating-bar') || e.target.closest('.cds-mm-minimap')) return;
+    if (e.target.closest('.cds-mm-node') || e.target.closest('.cds-mm-top-dock') || e.target.closest('.cds-mm-floating-bar') || e.target.closest('.cds-mm-minimap') || e.target.closest('.cds-mm-edge-add-btn') || e.target.closest('.cds-mm-group-header') || e.target.closest('.cds-mm-multi-toolbar')) return;
     
-    // Cliccando sullo sfondo vuoto della mappa deseleziona il nodo ed esce dalla modalità evidenziazione
-    if (this.selectedNodeId) {
+    // Se premuto tasto sinistro con Shift, avvia Selezione Rettangolare (Marquee / Lasso)
+    if (e.button === 0 && e.shiftKey) {
+      this.isMarquee = true;
+      const rect = this.stage.getBoundingClientRect();
+      const startX = (e.clientX - rect.left) / this.zoom;
+      const startY = (e.clientY - rect.top) / this.zoom;
+      this.marqueeStart = { x: startX, y: startY, clientX: e.clientX, clientY: e.clientY };
+      if (!this.marqueeEl) {
+        this.marqueeEl = this.stage.createDiv({ cls: 'cds-mm-marquee-box' });
+      }
+      this.marqueeEl.style.display = 'block';
+      this.marqueeEl.style.left = `${startX}px`;
+      this.marqueeEl.style.top = `${startY}px`;
+      this.marqueeEl.style.width = '0px';
+      this.marqueeEl.style.height = '0px';
+      return;
+    }
+
+    // Cliccando sullo sfondo vuoto senza Shift deseleziona tutto
+    if (this.selectedNodeId || (this.selectedNodeIds && this.selectedNodeIds.size > 0)) {
+      this.selectedNodeIds.clear();
+      this.selectedNodeId = null;
       this.deselectAll();
+      this.updateSelectionVisuals();
+      this.updateMultiSelectToolbar();
     }
 
     this.isDraggingCanvas = true;
@@ -5036,7 +5527,7 @@ class CdsMindmapView extends ItemView {
 module.exports = class CdsMindmapPlugin extends Plugin {
   async onload() {
     this.settings = Object.assign({ fileLayouts: {} }, await this.loadData());
-    console.log('Loading CDS Mindmap Suite v1.7.9 (Proportional Radial Sectors, Dedicated Table Branches, Zero-Collision 2D Solver, Canvas Resize & Organic View) (Organic View, Canvas-Style Resizing, Branch Labels, Zero-Overlap 2D Solver & Safe Table Preservation)');
+    console.log('Loading CDS Mindmap Suite v1.8.0 (Proportional Radial Sectors, Dedicated Table Branches, Zero-Collision 2D Solver, Canvas Resize & Organic View) (Organic View, Canvas-Style Resizing, Branch Labels, Zero-Overlap 2D Solver & Safe Table Preservation)');
 
     this.registerView(VIEW_TYPE_MINDMAP, (leaf) => new CdsMindmapView(leaf, this));
 
