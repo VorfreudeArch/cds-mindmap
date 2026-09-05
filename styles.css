@@ -20,17 +20,14 @@
   right: 12px;
   z-index: 100;
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap !important;
   align-items: center;
   justify-content: flex-start;
-  gap: 6px;
+  gap: 5px;
   pointer-events: none;
   max-width: calc(100% - 24px);
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding-bottom: 4px;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  overflow: visible !important;
+  transition: all 0.2s ease;
 }
 
 .cds-mm-top-dock::-webkit-scrollbar {
@@ -1377,4 +1374,145 @@
   box-shadow: 0 0 20px rgba(56, 189, 248, 0.5), 0 8px 30px rgba(0, 0, 0, 0.7);
   resize: both;
   overflow: auto;
+}
+
+/* ================== v1.7.6 RESPONSIVE COLLAPSIBLE DOCK ================== */
+.cds-mm-dock-toggle-btn {
+  background: rgba(22, 27, 46, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  color: #38bdf8;
+  padding: 3px 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.cds-mm-dock-toggle-btn:hover {
+  background: #38bdf8;
+  color: #0f172a;
+}
+
+@media (max-width: 1050px) {
+  .cds-mm-btn-text {
+    display: none !important;
+  }
+  .cds-mm-dock-group {
+    padding: 2px 4px !important;
+    gap: 2px !important;
+  }
+}
+
+/* ================== v1.7.6 IN-NODE ACTION BUTTONS ================== */
+.cds-mm-node-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  opacity: 0.35;
+  transition: opacity 0.15s ease;
+}
+
+.cds-mm-node:hover .cds-mm-node-actions,
+.cds-mm-node.is-selected .cds-mm-node-actions {
+  opacity: 1 !important;
+}
+
+.cds-mm-node-act-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  color: #f1f5f9;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 5px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  line-height: 1.2;
+  transition: all 0.15s ease;
+}
+
+.cds-mm-node-act-btn:hover {
+  background: #38bdf8;
+  color: #0f172a;
+  border-color: #38bdf8;
+  transform: scale(1.05);
+}
+
+.cds-mm-node-act-btn.act-sibling:hover {
+  background: #a78bfa;
+  color: #0f172a;
+  border-color: #a78bfa;
+}
+
+.cds-mm-node-act-btn.act-color:hover {
+  background: #fbbf24;
+  color: #0f172a;
+  border-color: #fbbf24;
+}
+
+.cds-mm-node-act-btn.act-delete:hover {
+  background: #f43f5e;
+  color: #ffffff;
+  border-color: #f43f5e;
+}
+
+/* ================== v1.7.6 ARCHITECTURAL THEMES ================== */
+/* 1. Theme Blueprint CAD */
+.cds-mm-container.theme-blueprint .cds-mm-viewport {
+  background-color: #091a28 !important;
+  background-image: 
+    linear-gradient(rgba(56, 189, 248, 0.14) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56, 189, 248, 0.14) 1px, transparent 1px),
+    linear-gradient(rgba(56, 189, 248, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56, 189, 248, 0.04) 1px, transparent 1px) !important;
+  background-size: 100px 100px, 100px 100px, 20px 20px, 20px 20px !important;
+}
+.cds-mm-container.theme-blueprint .cds-mm-node {
+  background: rgba(12, 32, 54, 0.94) !important;
+  border: 1.5px solid #38bdf8 !important;
+  color: #e0f2fe !important;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5), 0 0 10px rgba(56, 189, 248, 0.25) !important;
+}
+
+/* 2. Theme Light Carta Editoriale */
+.cds-mm-container.theme-light .cds-mm-viewport {
+  background-color: #f7f6f2 !important;
+  background-image: 
+    linear-gradient(rgba(0, 0, 0, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.06) 1px, transparent 1px) !important;
+  background-size: 30px 30px !important;
+}
+.cds-mm-container.theme-light .cds-mm-node {
+  background: #ffffff !important;
+  border: 1.5px solid #cbd5e1 !important;
+  color: #0f172a !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08) !important;
+}
+.cds-mm-container.theme-light .cds-mm-node-title {
+  color: #0f172a !important;
+}
+.cds-mm-container.theme-light .cds-mm-dock-group {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border-color: rgba(0, 0, 0, 0.12) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1) !important;
+}
+.cds-mm-container.theme-light .cds-mm-dock-btn {
+  color: #334155 !important;
+}
+.cds-mm-container.theme-light .cds-mm-floating-bar {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border-color: #0284c7 !important;
+}
+.cds-mm-container.theme-light .cds-mm-float-btn {
+  color: #1e293b !important;
 }

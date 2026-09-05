@@ -31,6 +31,18 @@ const CUSTOM_POSITIONS_CACHE = new Map();
 // ==========================================================================
 
 class MindmapEngine {
+  static findNodeInTree(node, id) {
+    if (!node) return null;
+    if (node.id === id) return node;
+    if (node.children) {
+      for (const c of node.children) {
+        const found = MindmapEngine.findNodeInTree(c, id);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
   static generateBranchPath(x1, y1, x2, y2, isRight, style = 'curved') {
     if (style === 'orthogonal') {
       const midX = Math.round((x1 + x2) / 2);
@@ -380,6 +392,36 @@ class MindmapEngine {
           lastNode.bodyText = (lastNode.bodyText ? lastNode.bodyText + '\n' : '') + trimmed;
           if (images.length) {
             lastNode.images = (lastNode.images || []).concat(images);
+          }
+        }
+      }
+    }
+
+    // RE-INIEZIONE PERSISTENTE DEI NODI CREATI DA CANVAS (v1.7.6)
+    if (filePath) {
+      const layoutData = CUSTOM_POSITIONS_CACHE.get(filePath + '_layout');
+      if (layoutData && layoutData.addedNodes && layoutData.addedNodes.length) {
+        for (const an of layoutData.addedNodes) {
+          const p = MindmapEngine.findNodeInTree(rootNode, an.parentId) || rootNode;
+          if (!p.children) p.children = [];
+          if (!p.children.some(c => c.id === an.id)) {
+            p.children.push({
+              id: an.id,
+              text: an.text,
+              depth: an.depth || ((p.depth || 0) + 1),
+              type: an.type || 'keypoint',
+              children: [],
+              collapsed: false,
+              customX: an.customX,
+              customY: an.customY,
+              customWidth: an.customWidth,
+              customHeight: an.customHeight,
+              customColor: an.customColor,
+              priority: an.priority,
+              isCanvasAdded: true,
+              bodyText: '',
+              layout: 'default'
+            });
           }
         }
       }
@@ -1798,6 +1840,8 @@ class MindmapCanvas {
 
     // v1.7.4: Stile connettori, ripasso attivo e breadcrumb glow
     this.connectorStyle = options.connectorStyle || 'curved';
+    this.theme = options.theme || (this.plugin && this.plugin.settings && this.plugin.settings.theme) || 'dark';
+    this.isDockCollapsed = false;
     this.isStudyMode = false;
     this.revealedNodes = new Set();
     this.hoveredNodeId = null;
@@ -1819,6 +1863,7 @@ class MindmapCanvas {
     if (this.plugin && this.plugin.settings && this.plugin.settings.fileLayouts && this.filePath) {
       const saved = this.plugin.settings.fileLayouts[this.filePath];
       if (saved) {
+        if (saved.theme) this.theme = saved.theme;
         if (saved.viewMode) this.viewMode = saved.viewMode;
         if (saved.detailLevel) this.detailLevel = saved.detailLevel;
         if (saved.connectorStyle) this.connectorStyle = saved.connectorStyle;
@@ -1952,8 +1997,39 @@ class MindmapCanvas {
 
   renderTopDock() {
     this.topDock.empty();
+    this.applyTheme();
 
-    // GRUPPO 1: VISTE MULTIPLE
+    // Se l'utente ha collassato la barra per visuale libera, mostra solo pillola compatta
+    if (this.isDockCollapsed) {
+      const pillToggle = this.topDock.createEl('button', {
+        cls: 'cds-mm-dock-toggle-btn',
+        attr: { title: 'Espandi barra degli strumenti' }
+      });
+      pillToggle.innerHTML = '🗺️ <span class="cds-mm-btn-text">Strumenti Mappa</span> ▾';
+      pillToggle.onmousedown = (e) => e.stopPropagation();
+      pillToggle.onclick = (e) => {
+        e.stopPropagation();
+        this.isDockCollapsed = false;
+        this.renderTopDock();
+      };
+      return;
+    }
+
+    // Toggle Collasso Barra
+    const btnCollapse = this.topDock.createEl('button', {
+      cls: 'cds-mm-dock-toggle-btn',
+      attr: { title: 'Comprimi barra per visuale libera' }
+    });
+    btnCollapse.innerHTML = '−';
+    btnCollapse.style.cssText = 'padding:3px 8px;font-weight:900;';
+    btnCollapse.onmousedown = (e) => e.stopPropagation();
+    btnCollapse.onclick = (e) => {
+      e.stopPropagation();
+      this.isDockCollapsed = true;
+      this.renderTopDock();
+    };
+
+    // GRUPPO 1: VISTE MULTIPLE & TEMI
     const groupViews = this.topDock.createDiv({ cls: 'cds-mm-dock-group' });
     groupViews.createSpan({ text: 'Vista:', cls: 'cds-mm-dock-label' });
 
@@ -1974,29 +2050,36 @@ class MindmapCanvas {
       return b;
     };
 
-    mkViewBtn('radial', 'Radiale 360°', '🌟');
+    mkViewBtn('radial', 'Radiale', '🌟');
     mkViewBtn('bilateral', 'Bilaterale', '🧠');
     mkViewBtn('right', 'A Destra', '🌿');
     mkViewBtn('table', 'Tabella', '📊');
     mkViewBtn('outline', 'Outline', '📑');
 
-    const btnOrganic = groupViews.createEl('button', {
-      cls: 'cds-mm-dock-btn' + (this.isOrganicView ? ' is-active' : ''),
-      attr: { title: 'Alterna Stile Caselle e Vista Organica (senza box)' }
+    // Selettore Temi Visivi Architetturali (v1.7.6)
+    const themeLabels = { dark: 'Scuro', blueprint: 'CAD Blueprint', light: 'Carta' };
+    const btnTheme = groupViews.createEl('button', {
+      cls: 'cds-mm-dock-btn',
+      attr: { title: 'Cambia Tema: Scuro Studio, CAD Blueprint o Carta Editoriale' }
     });
-    btnOrganic.innerHTML = `🌿 <span class="cds-mm-btn-text">${this.isOrganicView ? 'Organica' : 'Caselle'}</span>`;
-    btnOrganic.onmousedown = (e) => e.stopPropagation();
-    btnOrganic.onclick = (e) => {
+    btnTheme.innerHTML = `🎨 <span class="cds-mm-btn-text">${themeLabels[this.theme] || 'Tema'}</span>`;
+    btnTheme.onmousedown = (e) => e.stopPropagation();
+    btnTheme.onclick = (e) => {
       e.stopPropagation();
-      this.isOrganicView = !this.isOrganicView;
-      btnOrganic.innerHTML = `🌿 <span class="cds-mm-btn-text">${this.isOrganicView ? 'Organica' : 'Caselle'}</span>`;
-      btnOrganic.classList.toggle('is-active', this.isOrganicView);
+      const themes = ['dark', 'blueprint', 'light'];
+      const nextIdx = (themes.indexOf(this.theme) + 1) % themes.length;
+      this.theme = themes[nextIdx];
+      btnTheme.innerHTML = `🎨 <span class="cds-mm-btn-text">${themeLabels[this.theme]}</span>`;
+      this.applyTheme();
       this.saveLayoutMemory();
-      this.render();
+      new Notice(`🎨 Tema applicato: ${themeLabels[this.theme]}`);
     };
 
-    const connectorIcons = { curved: '🌊 Curvi', orthogonal: '📐 Squadrati', straight: '📏 Lineari' };
-    const btnConnector = groupViews.createEl('button', {
+    // GRUPPO 2: STILE & CONNETTORI
+    const groupStyle = this.topDock.createDiv({ cls: 'cds-mm-dock-group' });
+
+    const connectorIcons = { curved: '🌊 Curvi', orthogonal: '📐 90°', straight: '📏 Lineari' };
+    const btnConnector = groupStyle.createEl('button', {
       cls: 'cds-mm-dock-btn',
       attr: { title: 'Cambia stile connettori: Curvi (Bezier), Ortogonali (CAD 90°) o Lineari' }
     });
@@ -2013,12 +2096,24 @@ class MindmapCanvas {
       new Notice('📐 Stile connettori: ' + this.connectorStyle.toUpperCase());
     };
 
-    // GRUPPO 2: DETTAGLIO
-    const groupDetail = this.topDock.createDiv({ cls: 'cds-mm-dock-group' });
-    groupDetail.createSpan({ text: 'Dettaglio:', cls: 'cds-mm-dock-label' });
+    const btnOrganic = groupStyle.createEl('button', {
+      cls: 'cds-mm-dock-btn' + (this.isOrganicView ? ' is-active' : ''),
+      attr: { title: 'Alterna Stile Caselle e Vista Organica' }
+    });
+    btnOrganic.innerHTML = `🌿 <span class="cds-mm-btn-text">${this.isOrganicView ? 'Organica' : 'Caselle'}</span>`;
+    btnOrganic.onmousedown = (e) => e.stopPropagation();
+    btnOrganic.onclick = (e) => {
+      e.stopPropagation();
+      this.isOrganicView = !this.isOrganicView;
+      btnOrganic.innerHTML = `🌿 <span class="cds-mm-btn-text">${this.isOrganicView ? 'Organica' : 'Caselle'}</span>`;
+      btnOrganic.classList.toggle('is-active', this.isOrganicView);
+      this.saveLayoutMemory();
+      this.render();
+    };
 
+    // Dettaglio
     const mkDetailBtn = (lvl, label, icon, tip) => {
-      const b = groupDetail.createEl('button', {
+      const b = groupStyle.createEl('button', {
         cls: 'cds-mm-dock-btn' + (this.detailLevel === lvl ? ' is-active' : ''),
         attr: { title: tip }
       });
@@ -2033,12 +2128,11 @@ class MindmapCanvas {
       };
       return b;
     };
+    mkDetailBtn('titles', 'Titoli', '🏷️', 'Mostra solo titoli H1..H6');
+    mkDetailBtn('keypoints', 'Punti', '🎯', 'Mostra titoli e concetti chiave');
+    mkDetailBtn('full', 'Tutto', '📖', 'Mostra testo completo');
 
-    mkDetailBtn('titles', 'Titoli', '🏷️', 'Mostra solo la gerarchia H1..H6');
-    mkDetailBtn('keypoints', 'Punti Chiave', '🎯', 'Mostra titoli e concetti chiave');
-    mkDetailBtn('full', 'Tutto', '📖', 'Mostra testo completo dei paragrafi');
-
-    // GRUPPO 3: STRUMENTI & OPERAZIONI
+    // GRUPPO 3: STRUMENTI OPERATIVI (Figlio, Fratello, Elimina)
     const groupTools = this.topDock.createDiv({ cls: 'cds-mm-dock-group' });
 
     const mkToolBtn = (icon, tip, onClick, isActive = false) => {
@@ -2056,10 +2150,10 @@ class MindmapCanvas {
     mkToolBtn('⏬ <span class="cds-mm-btn-text">Fratello</span>', 'Aggiungi Nodo Fratello (Enter)', () => this.addSiblingToSelected());
     mkToolBtn('🗑️', 'Elimina Nodo (Canc)', () => this.deleteSelected());
 
-    // Modalità Ripasso Orale (Flashcard Interactive)
+    // Modalità Ripasso Orale
     const btnStudy = groupTools.createEl('button', {
       cls: 'cds-mm-dock-btn' + (this.isStudyMode ? ' is-active' : ''),
-      attr: { title: 'Modalità Ripasso Orale: copre i concetti e permette di verificarli uno ad uno' }
+      attr: { title: 'Modalità Ripasso Orale (Flashcard)' }
     });
     btnStudy.innerHTML = '🎓 <span class="cds-mm-btn-text">Ripasso</span>';
     btnStudy.onmousedown = (e) => e.stopPropagation();
@@ -2068,62 +2162,129 @@ class MindmapCanvas {
       this.toggleStudyMode();
     };
 
-    if (this.isStudyMode) {
-      const btnRecover = groupTools.createEl('button', {
-        cls: 'cds-mm-dock-btn',
-        attr: { title: 'Ricopre tutti i concetti per iniziare un nuovo ciclo di ripasso' }
+    // GRUPPO 4: CANVAS & ESPORTAZIONE
+    const groupCanvas = this.topDock.createDiv({ cls: 'cds-mm-dock-group' });
+
+    const mkCanvasBtn = (icon, tip, onClick, isActive = false) => {
+      const b = groupCanvas.createEl('button', {
+        cls: 'cds-mm-dock-btn' + (isActive ? ' is-active' : ''),
+        attr: { title: tip }
       });
-      btnRecover.innerHTML = '🔄 <span class="cds-mm-btn-text">Ricopri Tutto</span>';
-      btnRecover.onmousedown = (e) => e.stopPropagation();
-      btnRecover.onclick = (e) => {
-        e.stopPropagation();
-        this.revealedNodes.clear();
-        this.render();
-        new Notice('🔄 Tutti i concetti sono stati ricoperti!');
-      };
-    }
+      b.innerHTML = icon;
+      b.onmousedown = (e) => e.stopPropagation();
+      b.onclick = (e) => { e.stopPropagation(); onClick(); };
+      return b;
+    };
 
-    groupTools.createDiv({ cls: 'cds-mm-divider' });
+    mkCanvasBtn('🔍 <span class="cds-mm-btn-text">Adatta</span>', 'Adatta mappa allo schermo (Fit-All)', () => this.fitToScreen());
+    mkCanvasBtn('🧭', 'Centra la radice (Ctrl+E)', () => this.centerRoot());
+    mkCanvasBtn('🔄', 'Cancella memoria mappa e ripristina geometria pulita', () => this.resetLayoutMemory());
+    mkCanvasBtn('📄', 'Mostra perimetro foglio A0-A6 sul canvas', () => this.toggleSheetOverlay(), this.showSheetOverlay);
+    mkCanvasBtn('🗺️', 'Attiva/Disattiva Minimap Radar', () => this.toggleMinimap());
+    mkCanvasBtn('📤 <span class="cds-mm-btn-text">Esporta</span>', 'Esporta in PDF, PNG, SVG Vettoriale da A0 ad A6', () => this.openExportModal());
 
-    mkToolBtn('🔍 Adatta', 'Visualizza Intera Mappa nello Schermo (Fit-All)', () => this.fitToScreen());
-    mkToolBtn('🧭 Centra', 'Centra la radice della mappa (Ctrl+E)', () => this.centerRoot());
-    mkToolBtn('🔄 <span class="cds-mm-btn-text">Resetta Mappa</span>', 'Cancella la memoria della mappa e ripristina la geometria automatica anti-sovrapposizione', () => this.resetLayoutMemory());
-
-    // Toggle Foglio di Stampa su Canvas
-    mkToolBtn('📄 <span class="cds-mm-btn-text">Foglio Stampa</span>', 'Mostra / Nascondi perimetro foglio A0-A6 sul canvas', () => this.toggleSheetOverlay(), this.showSheetOverlay);
-    mkToolBtn('🗺️', 'Attiva/Disattiva Minimap', () => this.toggleMinimap());
-
-    groupTools.createDiv({ cls: 'cds-mm-divider' });
-
-    mkToolBtn('📤 Esporta HD', 'Esporta nei formati da A0 ad A6 (PNG, JPG, PDF, SVG Vettoriale)', () => this.openExportModal());
-
-    // Ricerca Rapida Concetti nella Mappa
-    const searchWrap = groupTools.createDiv({ cls: 'cds-mm-search-wrap' });
-    searchWrap.style.cssText = 'display:flex;align-items:center;margin-left:6px;';
-    const inpSearch = searchWrap.createEl('input', {
+    // GRUPPO 5: RICERCA CON NAVIGAZIONE SEQUENZIALE
+    const groupSearch = this.topDock.createDiv({ cls: 'cds-mm-dock-group cds-mm-search-dock-group' });
+    
+    const inpSearch = groupSearch.createEl('input', {
       type: 'text',
-      placeholder: '🔍 Cerca nodo...',
+      placeholder: '🔍 Cerca...',
       cls: 'cds-mm-dock-search'
     });
-    inpSearch.style.cssText = 'background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:14px;padding:3px 10px;font-size:0.75rem;color:#f8fafc;width:110px;outline:none;transition:all 0.2s ease;';
-    inpSearch.onfocus = () => { inpSearch.style.width = '170px'; inpSearch.style.borderColor = '#38bdf8'; };
-    inpSearch.onblur = () => { if (!inpSearch.value) { inpSearch.style.width = '110px'; inpSearch.style.borderColor = 'rgba(255,255,255,0.15)'; } };
+    inpSearch.style.cssText = 'background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);border-radius:12px;padding:3px 8px;font-size:0.75rem;color:#f8fafc;width:95px;outline:none;';
+    inpSearch.onfocus = () => { inpSearch.style.width = '130px'; inpSearch.style.borderColor = '#38bdf8'; };
+    inpSearch.onblur = () => { if (!inpSearch.value) inpSearch.style.width = '95px'; };
     inpSearch.onmousedown = (e) => e.stopPropagation();
+
+    const countBadge = groupSearch.createSpan({ cls: 'cds-mm-search-count' });
+    countBadge.style.cssText = 'font-size:0.7rem;color:#fbbf24;font-weight:700;padding:0 2px;display:none;';
+
+    const btnPrev = groupSearch.createEl('button', { cls: 'cds-mm-dock-btn search-nav-btn', attr: { title: 'Precedente (Shift+Enter)' } });
+    btnPrev.innerHTML = '◀';
+    btnPrev.style.cssText = 'padding:2px 4px;font-size:0.7rem;display:none;';
+
+    const btnNext = groupSearch.createEl('button', { cls: 'cds-mm-dock-btn search-nav-btn', attr: { title: 'Successivo (Enter)' } });
+    btnNext.innerHTML = '▶';
+    btnNext.style.cssText = 'padding:2px 4px;font-size:0.7rem;display:none;';
+
+    let searchMatches = [];
+    let searchIdx = 0;
+
+    const updateSearchHighlight = () => {
+      if (!searchMatches.length) {
+        countBadge.style.display = 'none';
+        btnPrev.style.display = 'none';
+        btnNext.style.display = 'none';
+        return;
+      }
+      countBadge.style.display = 'inline-block';
+      btnPrev.style.display = 'inline-block';
+      btnNext.style.display = 'inline-block';
+      countBadge.textContent = `${searchIdx + 1}/${searchMatches.length}`;
+
+      const target = searchMatches[searchIdx];
+      if (target) {
+        this.selectNode(target.id);
+        this.centerOnNode(target);
+        const el = this.nodesLayer.querySelector(`[data-node-id="${target.id}"]`);
+        if (el) {
+          el.style.boxShadow = '0 0 24px rgba(251, 191, 36, 1), 0 0 0 3px #fbbf24';
+        }
+      }
+    };
+
     inpSearch.oninput = () => {
       const q = inpSearch.value.trim().toLowerCase();
+      searchMatches = [];
+      searchIdx = 0;
+
       const allEls = this.nodesLayer.querySelectorAll('.cds-mm-node');
       allEls.forEach(el => {
+        const nid = el.getAttribute('data-node-id');
+        const nodeObj = this.renderedNodes.find(n => n.id === nid);
         if (!q) {
           el.style.opacity = '1';
           el.style.boxShadow = '';
         } else if (el.textContent.toLowerCase().includes(q)) {
           el.style.opacity = '1';
           el.style.boxShadow = '0 0 16px rgba(251, 191, 36, 0.8), 0 0 0 2px #fbbf24';
+          if (nodeObj) searchMatches.push(nodeObj);
         } else {
           el.style.opacity = '0.22';
           el.style.boxShadow = '';
         }
       });
+
+      if (q && searchMatches.length > 0) {
+        updateSearchHighlight();
+      } else {
+        countBadge.style.display = 'none';
+        btnPrev.style.display = 'none';
+        btnNext.style.display = 'none';
+      }
+    };
+
+    btnNext.onclick = (e) => {
+      e.stopPropagation();
+      if (!searchMatches.length) return;
+      searchIdx = (searchIdx + 1) % searchMatches.length;
+      updateSearchHighlight();
+    };
+
+    btnPrev.onclick = (e) => {
+      e.stopPropagation();
+      if (!searchMatches.length) return;
+      searchIdx = (searchIdx - 1 + searchMatches.length) % searchMatches.length;
+      updateSearchHighlight();
+    };
+
+    inpSearch.onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.shiftKey) btnPrev.click();
+        else btnNext.click();
+      }
     };
   }
 
@@ -2293,7 +2454,7 @@ class MindmapCanvas {
             const imgEl = imgWrap.createEl('img', { cls: 'cds-mm-node-thumb', attr: { src } });
             imgEl.onclick = (ev) => {
               ev.stopPropagation();
-              window.open(src, '_blank');
+              this.openImageLightbox(src, node.text);
             };
           }
         }
@@ -2336,6 +2497,62 @@ class MindmapCanvas {
             if (raw) raw.collapsed = !raw.collapsed;
             node.collapsed = !node.collapsed;
             this.render();
+          };
+        }
+
+        // AZIONI RAPIDE INTEGRATE DIRETTAMENTE NEL NODO (v1.7.6)
+        const nodeActions = nodeEl.createDiv({ cls: 'cds-mm-node-actions' });
+        
+        const btnChild = nodeActions.createEl('button', {
+          cls: 'cds-mm-node-act-btn act-child',
+          attr: { title: 'Aggiungi concetto figlio (Tab)' }
+        });
+        btnChild.innerHTML = '➕ <span class="cds-mm-act-lbl">Figlio</span>';
+        btnChild.onmousedown = (e) => { e.stopPropagation(); e.preventDefault(); };
+        btnChild.onclick = (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          this.selectNode(node.id);
+          this.addChildToSelected('Nuovo Concetto', null, node.id);
+        };
+
+        if (!node.isRoot) {
+          const btnSibling = nodeActions.createEl('button', {
+            cls: 'cds-mm-node-act-btn act-sibling',
+            attr: { title: 'Aggiungi concetto fratello (Enter)' }
+          });
+          btnSibling.innerHTML = '⏬ <span class="cds-mm-act-lbl">Fratello</span>';
+          btnSibling.onmousedown = (e) => { e.stopPropagation(); e.preventDefault(); };
+          btnSibling.onclick = (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            this.selectNode(node.id);
+            this.addSiblingToSelected('Nuovo Concetto', node.id);
+          };
+
+          const btnColor = nodeActions.createEl('button', {
+            cls: 'cds-mm-node-act-btn act-color',
+            attr: { title: 'Cambia colore evidenziazione nodo' }
+          });
+          btnColor.innerHTML = '🎨';
+          btnColor.onmousedown = (e) => { e.stopPropagation(); e.preventDefault(); };
+          btnColor.onclick = (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            this.cycleNodeColor(node);
+          };
+
+          const btnDelete = nodeActions.createEl('button', {
+            cls: 'cds-mm-node-act-btn act-delete',
+            attr: { title: 'Elimina concetto' }
+          });
+          btnDelete.innerHTML = '🗑️';
+          btnDelete.onmousedown = (e) => { e.stopPropagation(); e.preventDefault(); };
+          btnDelete.onclick = (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            this.selectNode(node.id);
+            this.deleteSelected();
           };
         }
       }
@@ -2634,6 +2851,36 @@ class MindmapCanvas {
     mkFloatBtn('➕ Figlio', 'Aggiungi nodo figlio (Tab)', () => this.addChildToSelected());
     mkFloatBtn('⏬ Fratello', 'Aggiungi nodo fratello (Enter)', () => this.addSiblingToSelected());
 
+    // Palette Colori per il nodo (v1.7.6)
+    const colorGroup = this.floatingBar.createDiv({ cls: 'cds-mm-float-color-group' });
+    colorGroup.style.cssText = 'display:flex;align-items:center;gap:3px;margin:0 4px;';
+    const pal = [
+      { name: 'Celeste', hex: '#38bdf8' },
+      { name: 'Smeraldo', hex: '#10b981' },
+      { name: 'Ambra', hex: '#fbbf24' },
+      { name: 'Corallo', hex: '#f43f5e' },
+      { name: 'Viola', hex: '#a855f7' },
+      { name: 'Reset', hex: null }
+    ];
+    for (const c of pal) {
+      const dot = colorGroup.createEl('span', {
+        cls: 'cds-mm-color-dot',
+        attr: { title: `Colora nodo: ${c.name}` }
+      });
+      dot.style.cssText = `width:13px;height:13px;border-radius:50%;background:${c.hex || '#64748b'};cursor:pointer;display:inline-block;border:1.5px solid rgba(255,255,255,0.4);transition:transform 0.15s ease;`;
+      dot.onmouseenter = () => dot.style.transform = 'scale(1.25)';
+      dot.onmouseleave = () => dot.style.transform = 'scale(1)';
+      dot.onclick = (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        rawNode.customColor = c.hex;
+        const rendered = this.renderedNodes.find(n => n.id === rawNode.id);
+        if (rendered) rendered.customColor = c.hex;
+        this.saveLayoutMemory();
+        this.render();
+      };
+    }
+
     // Priorità di Studio
     mkFloatBtn('🔴', 'Segna come: Da Rivedere (Urgente)', () => this.setNodePriority(rawNode, 'high', '#f43f5e'));
     mkFloatBtn('🟡', 'Segna come: In Dubbio (Da approfondire)', () => this.setNodePriority(rawNode, 'medium', '#fbbf24'));
@@ -2705,9 +2952,26 @@ class MindmapCanvas {
   }
 
   setupMinimapEvents() {
+    let isDraggingMinimap = false;
+
+    const onMinimapMove = (e) => {
+      if (!isDraggingMinimap) return;
+      this.panWithMinimap(e);
+    };
+
+    const onMinimapUp = () => {
+      isDraggingMinimap = false;
+      window.removeEventListener('mousemove', onMinimapMove);
+      window.removeEventListener('mouseup', onMinimapUp);
+    };
+
     this.minimapWrap.addEventListener('mousedown', (e) => {
       e.stopPropagation();
+      e.preventDefault();
+      isDraggingMinimap = true;
       this.panWithMinimap(e);
+      window.addEventListener('mousemove', onMinimapMove);
+      window.addEventListener('mouseup', onMinimapUp);
     });
   }
 
@@ -3088,8 +3352,9 @@ class MindmapCanvas {
 
     const positions = {};
     const collapsed = [];
+    const addedNodes = [];
 
-    const walk = (n) => {
+    const walk = (n, parentId = null) => {
       if (n.customX !== undefined || n.customY !== undefined || n.customWidth !== undefined || n.customHeight !== undefined || n.layout || n.priority || n.customColor) {
         positions[n.id] = {
           x: Math.round(n.customX !== undefined ? n.customX : (n.x || 0)),
@@ -3103,19 +3368,37 @@ class MindmapCanvas {
           customColor: n.customColor
         };
       }
+      if (n.isCanvasAdded) {
+        addedNodes.push({
+          id: n.id,
+          parentId: parentId || 'root',
+          text: n.text,
+          depth: n.depth,
+          type: n.type || 'keypoint',
+          customX: n.customX,
+          customY: n.customY,
+          customWidth: n.customWidth,
+          customHeight: n.customHeight,
+          customColor: n.customColor,
+          priority: n.priority,
+          isCanvasAdded: true
+        });
+      }
       if (n.collapsed) {
         collapsed.push(n.id);
       }
-      if (n.children) n.children.forEach(walk);
+      if (n.children) n.children.forEach(c => walk(c, n.id));
     };
     walk(this.rawRootNode);
 
     this.plugin.settings.fileLayouts[this.filePath] = {
       positions,
       collapsed,
+      addedNodes,
       viewMode: this.viewMode,
       detailLevel: this.detailLevel,
       connectorStyle: this.connectorStyle,
+      theme: this.theme,
       isOrganicView: !!this.isOrganicView,
       panX: Math.round(this.panX),
       panY: Math.round(this.panY),
@@ -3124,8 +3407,9 @@ class MindmapCanvas {
     };
 
     CUSTOM_POSITIONS_CACHE.set(this.filePath, positions);
+    CUSTOM_POSITIONS_CACHE.set(this.filePath + '_layout', this.plugin.settings.fileLayouts[this.filePath]);
     if (this.plugin.saveSettings) {
-      await this.plugin.saveSettings();
+      this.plugin.saveSettings();
     }
   }
 
@@ -3273,20 +3557,34 @@ class MindmapCanvas {
     }, 60);
   }
 
-  addChildToSelected(defaultText = 'Nuovo Concetto', pdfLink = null) {
+  addChildToSelected(defaultText = 'Nuovo Concetto', pdfLink = null, targetParentId = null) {
     let parent = null;
-    if (this.selectedNodeId) {
-      parent = this.findRawNode(this.selectedNodeId);
+    const parentId = targetParentId || this.selectedNodeId;
+    if (parentId) {
+      parent = this.findRawNode(parentId);
     }
     if (!parent) {
       parent = this.rawRootNode;
     }
-    parent.collapsed = false;
+    if (!parent) return;
+
+    // Assicura che il genitore e tutti i suoi antenati siano espansi
+    let curr = parent;
+    while (curr) {
+      curr.collapsed = false;
+      curr = this.findParent(curr.id);
+    }
+
     if (!parent.children) parent.children = [];
+
+    // Se il livello di dettaglio è solo titoli, passa automaticamente a keypoints per non nascondere il nuovo nodo
+    if (this.detailLevel === 'titles') {
+      this.detailLevel = 'keypoints';
+    }
 
     const childIdx = parent.children.length;
     const parentPath = parent.id || 'root';
-    const timestamp = Date.now().toString(36).slice(-4);
+    const timestamp = Date.now().toString(36).slice(-4) + Math.floor(Math.random() * 100);
     const newId = MindmapEngine.generateDeterministicId(parentPath, childIdx, defaultText) + '_' + timestamp;
 
     const newNode = {
@@ -3297,6 +3595,7 @@ class MindmapCanvas {
       children: [],
       collapsed: false,
       pdfLink,
+      isCanvasAdded: true,
       bodyText: '',
       layout: 'default'
     };
@@ -3306,30 +3605,50 @@ class MindmapCanvas {
     this.saveLayoutMemory();
     this.render();
 
+    const rendered = this.renderedNodes.find(n => n.id === newNode.id);
+    if (rendered) {
+      this.centerOnNode(rendered);
+    }
+
     setTimeout(() => {
       const nodeEl = this.nodesLayer.querySelector(`[data-node-id="${newNode.id}"]`);
       if (nodeEl) {
         this.startEditing(newNode, nodeEl);
       }
     }, 60);
+
+    new Notice('➕ Nuovo concetto aggiunto!');
   }
 
-  addSiblingToSelected(defaultText = 'Nuovo Concetto') {
-    if (!this.selectedNodeId || this.selectedNodeId === 'root') {
+  addSiblingToSelected(defaultText = 'Nuovo Concetto', targetNodeId = null) {
+    const targetId = targetNodeId || this.selectedNodeId;
+    if (!targetId || targetId === 'root') {
       this.addChildToSelected(defaultText);
       return;
     }
 
-    const parent = this.findParent(this.selectedNodeId);
+    const parent = this.findParent(targetId);
     if (!parent) {
       this.addChildToSelected(defaultText);
       return;
     }
 
-    const idx = parent.children.findIndex(c => c.id === this.selectedNodeId);
+    let curr = parent;
+    while (curr) {
+      curr.collapsed = false;
+      curr = this.findParent(curr.id);
+    }
+
+    if (!parent.children) parent.children = [];
+
+    if (this.detailLevel === 'titles') {
+      this.detailLevel = 'keypoints';
+    }
+
+    const idx = parent.children.findIndex(c => c.id === targetId);
     const parentPath = parent.id || 'root';
     const childIdx = parent.children.length;
-    const timestamp = Date.now().toString(36).slice(-4);
+    const timestamp = Date.now().toString(36).slice(-4) + Math.floor(Math.random() * 100);
     const newId = MindmapEngine.generateDeterministicId(parentPath, childIdx, defaultText) + '_' + timestamp;
 
     const newNode = {
@@ -3339,6 +3658,7 @@ class MindmapCanvas {
       type: parent.depth === 0 ? 'heading' : 'keypoint',
       children: [],
       collapsed: false,
+      isCanvasAdded: true,
       bodyText: '',
       layout: 'default'
     };
@@ -3353,12 +3673,19 @@ class MindmapCanvas {
     this.saveLayoutMemory();
     this.render();
 
+    const rendered = this.renderedNodes.find(n => n.id === newNode.id);
+    if (rendered) {
+      this.centerOnNode(rendered);
+    }
+
     setTimeout(() => {
       const nodeEl = this.nodesLayer.querySelector(`[data-node-id="${newNode.id}"]`);
       if (nodeEl) {
         this.startEditing(newNode, nodeEl);
       }
     }, 60);
+
+    new Notice('⏬ Nuovo concetto fratello aggiunto!');
   }
 
   deleteSelected() {
@@ -3539,6 +3866,86 @@ class MindmapCanvas {
     this.updateMinimap();
   }
 
+  centerOnNode(node) {
+    if (!node) return;
+    const vW = this.viewport.clientWidth || 1000;
+    const vH = this.viewport.clientHeight || 700;
+    const nodeX = node.x || 0;
+    const nodeY = node.y || 0;
+    const nodeW = node.width || 180;
+    const nodeH = node.height || 50;
+
+    this.panX = (vW / 2) - (nodeX + (nodeW / 2)) * this.zoom;
+    this.panY = (vH / 2) - (nodeY + (nodeH / 2)) * this.zoom;
+    this.updateTransform();
+    this.updateMinimap();
+  }
+
+  applyTheme() {
+    if (!this.container) return;
+    this.container.classList.remove('theme-dark', 'theme-blueprint', 'theme-light');
+    this.container.classList.add(`theme-${this.theme}`);
+  }
+
+  cycleNodeColor(node) {
+    const colors = [
+      '#38bdf8', // Celeste Sky
+      '#10b981', // Smeraldo Emerald
+      '#fbbf24', // Ambra Amber
+      '#f43f5e', // Corallo Rose
+      '#a855f7', // Viola Purple
+      null       // Default
+    ];
+    const current = node.customColor || null;
+    const nextIdx = (colors.indexOf(current) + 1) % colors.length;
+    const nextColor = colors[nextIdx];
+    
+    node.customColor = nextColor;
+    const raw = this.findRawNode(node.id);
+    if (raw) raw.customColor = nextColor;
+    
+    this.saveLayoutMemory();
+    this.render();
+    new Notice('🎨 Colore nodo aggiornato');
+  }
+
+  openImageLightbox(src, caption = '') {
+    const overlay = document.createElement('div');
+    overlay.className = 'cds-mm-lightbox-overlay';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.88);backdrop-filter:blur(8px);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;cursor:zoom-out;';
+
+    const img = document.createElement('img');
+    img.src = src;
+    img.style.cssText = 'max-width:90vw;max-height:82vh;object-fit:contain;border-radius:8px;box-shadow:0 12px 40px rgba(0,0,0,0.8);border:2px solid rgba(255,255,255,0.2);cursor:default;';
+    img.onclick = (e) => e.stopPropagation();
+
+    if (caption) {
+      const capEl = document.createElement('div');
+      capEl.textContent = caption;
+      capEl.style.cssText = 'color:#f8fafc;font-size:0.95rem;font-weight:600;margin-top:12px;text-align:center;max-width:800px;';
+      overlay.appendChild(capEl);
+    }
+
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '✕ Chiudi';
+    closeBtn.style.cssText = 'position:absolute;top:20px;right:24px;background:rgba(255,255,255,0.15);color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-weight:700;font-size:0.9rem;';
+    closeBtn.onclick = () => overlay.remove();
+
+    overlay.appendChild(img);
+    overlay.appendChild(closeBtn);
+    overlay.onclick = () => overlay.remove();
+
+    const onEsc = (e) => {
+      if (e.key === 'Escape') {
+        overlay.remove();
+        window.removeEventListener('keydown', onEsc);
+      }
+    };
+    window.addEventListener('keydown', onEsc);
+
+    document.body.appendChild(overlay);
+  }
+
   renderTableView() {
     this.tableContainer.empty();
     const table = this.tableContainer.createEl('table', { cls: 'cds-mm-table' });
@@ -3681,6 +4088,17 @@ class CdsMindmapView extends ItemView {
 
   async loadMindmapFromFile() {
     if (!this.file) return;
+
+    if (this.plugin && this.plugin.settings && this.plugin.settings.fileLayouts) {
+      const saved = this.plugin.settings.fileLayouts[this.file.path];
+      if (saved) {
+        CUSTOM_POSITIONS_CACHE.set(this.file.path + '_layout', saved);
+        if (saved.positions) {
+          CUSTOM_POSITIONS_CACHE.set(this.file.path, saved.positions);
+        }
+      }
+    }
+
     const content = await this.app.vault.read(this.file);
     const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
     const frontmatter = fmMatch ? fmMatch[1] : '';
@@ -3743,6 +4161,17 @@ class CdsMindmapView extends ItemView {
 
   async reloadFromMarkdown() {
     if (!this.file || !this.canvas || this._isInternalSaving) return;
+
+    if (this.plugin && this.plugin.settings && this.plugin.settings.fileLayouts) {
+      const saved = this.plugin.settings.fileLayouts[this.file.path];
+      if (saved) {
+        CUSTOM_POSITIONS_CACHE.set(this.file.path + '_layout', saved);
+        if (saved.positions) {
+          CUSTOM_POSITIONS_CACHE.set(this.file.path, saved.positions);
+        }
+      }
+    }
+
     const content = await this.app.vault.read(this.file);
     const newRoot = MindmapEngine.parseMarkdown(content, this.file.basename, this.file.path);
 
