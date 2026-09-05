@@ -152,7 +152,14 @@ class MindmapEngine {
       const listMatch = line.match(/^(\s*)(?:[-*+]|\d+\.)\s+(.*)$/);
       if (listMatch) {
         const indent = listMatch[1].replace(/\t/g, '  ').length;
-        const listLevel = (currentParentStack[currentParentStack.length - 1].depth || 1) + Math.floor(indent / 2) + 1;
+        let baseHeadingDepth = 1;
+        for (let s = currentParentStack.length - 1; s >= 0; s--) {
+          if (currentParentStack[s].type === 'heading') {
+            baseHeadingDepth = currentParentStack[s].depth || 1;
+            break;
+          }
+        }
+        const listLevel = baseHeadingDepth + 1 + Math.floor(indent / 2);
         const text = listMatch[2].trim();
 
         while (currentParentStack.length > 1 && currentParentStack[currentParentStack.length - 1].depth >= listLevel) {
