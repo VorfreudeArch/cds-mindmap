@@ -1,9 +1,9 @@
 {
   "id": "cds-mindmap",
   "name": "CDS Mindmap & Concept Tree",
-  "version": "1.7.8",
+  "version": "1.7.9",
   "minAppVersion": "1.0.0",
-  "description": "Suite professionale studio e architettura: esportazione infallibile anti-crash (limiti di sicurezza 8K e fallback dataURL), cartiglio personalizzabile (UNI-ISO, moderno, accademico, minimale, testata top banner), dimensioni e posizioni configurabili, importazione logo grafico (file/vault), e permanenza totale di nodi e collegamenti tra salvataggi e ricaricamenti.",
+  "description": "Suite professionale studio e architettura: diramazione intelligente a ventaglio orizzontale multi-colonna, bilanciamento greedy bin-packing bilaterale (-60% altezza), ottimizzazione ergonomica dei nodi con testo completo (schede architettoniche proporzionate), scaler di leggibilità tipografica per stampa A3/A4 (10-12pt reali su carta), selettore densità esportazione (Completo, Poster Sintetico A3/A4, Solo Titoli) e anteprima interattiva con zoom & pan.",
   "author": "VorfreudeArch",
   "isDesktopOnly": false
 }
