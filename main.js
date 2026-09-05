@@ -32,7 +32,6 @@ const CUSTOM_POSITIONS_CACHE = new Map();
 
 class MindmapEngine {
   static findNodeInTree(node, id) {
-    if (!node) return null;
     if (node.id === id) return node;
     if (node.children) {
       for (const c of node.children) {
@@ -41,6 +40,98 @@ class MindmapEngine {
       }
     }
     return null;
+  }
+
+  static findNodeByText(node, text) {
+    if (!text) return null;
+    const cleanTarget = text.trim().toLowerCase();
+    if ((node.text || '').trim().toLowerCase() === cleanTarget) return node;
+    if (node.children) {
+      for (const c of node.children) {
+        const found = MindmapEngine.findNodeByText(c, text);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  // RE-INIEZIONE PERSISTENTE DEI NODI CREATI DA CANVAS (v1.7.8 Multi-Pass & Fallback)
+  static reinjectAddedNodes(rootNode, filePath) {
+    if (!filePath) return;
+    const layoutData = CUSTOM_POSITIONS_CACHE.get(filePath + '_layout');
+    if (!layoutData || !layoutData.addedNodes || !layoutData.addedNodes.length) return;
+
+    let pending = [...layoutData.addedNodes];
+    let maxPasses = 5;
+
+    while (pending.length > 0 && maxPasses-- > 0) {
+      const nextPending = [];
+      for (const an of pending) {
+        let p = MindmapEngine.findNodeInTree(rootNode, an.parentId);
+        if (!p && an.parentText) {
+          p = MindmapEngine.findNodeByText(rootNode, an.parentText);
+        }
+
+        if (p) {
+          if (!p.children) p.children = [];
+          let existing = p.children.find(c => c.id === an.id);
+          if (!existing) {
+            p.children.push({
+              id: an.id,
+              text: an.text,
+              depth: an.depth || ((p.depth || 0) + 1),
+              type: an.type || 'keypoint',
+              children: [],
+              collapsed: false,
+              customX: an.customX,
+              customY: an.customY,
+              customWidth: an.customWidth,
+              customHeight: an.customHeight,
+              customColor: an.customColor,
+              priority: an.priority,
+              isCanvasAdded: true,
+              bodyText: an.bodyText || '',
+              pdfLink: an.pdfLink || null,
+              images: an.images || null,
+              tableData: an.tableData || null,
+              layout: an.layout || 'default'
+            });
+          }
+        } else {
+          nextPending.push(an);
+        }
+      }
+
+      if (nextPending.length === pending.length) {
+        // Se rimangono nodi orfani, attaccali alla radice per non perderli MAI!
+        for (const an of nextPending) {
+          if (!rootNode.children.some(c => c.id === an.id)) {
+            rootNode.children.push({
+              id: an.id,
+              text: an.text,
+              depth: 1,
+              type: an.type || 'keypoint',
+              children: [],
+              collapsed: false,
+              customX: an.customX,
+              customY: an.customY,
+              customWidth: an.customWidth,
+              customHeight: an.customHeight,
+              customColor: an.customColor,
+              priority: an.priority,
+              isCanvasAdded: true,
+              bodyText: an.bodyText || '',
+              pdfLink: an.pdfLink || null,
+              images: an.images || null,
+              tableData: an.tableData || null,
+              layout: an.layout || 'default'
+            });
+          }
+        }
+        break;
+      }
+      pending = nextPending;
+    }
   }
 
   static generateBranchPath(x1, y1, x2, y2, isRight, style = 'curved') {
@@ -397,36 +488,8 @@ class MindmapEngine {
       }
     }
 
-    // RE-INIEZIONE PERSISTENTE DEI NODI CREATI DA CANVAS (v1.7.6)
-    if (filePath) {
-      const layoutData = CUSTOM_POSITIONS_CACHE.get(filePath + '_layout');
-      if (layoutData && layoutData.addedNodes && layoutData.addedNodes.length) {
-        for (const an of layoutData.addedNodes) {
-          const p = MindmapEngine.findNodeInTree(rootNode, an.parentId) || rootNode;
-          if (!p.children) p.children = [];
-          if (!p.children.some(c => c.id === an.id)) {
-            p.children.push({
-              id: an.id,
-              text: an.text,
-              depth: an.depth || ((p.depth || 0) + 1),
-              type: an.type || 'keypoint',
-              children: [],
-              collapsed: false,
-              customX: an.customX,
-              customY: an.customY,
-              customWidth: an.customWidth,
-              customHeight: an.customHeight,
-              customColor: an.customColor,
-              priority: an.priority,
-              isCanvasAdded: true,
-              bodyText: '',
-              layout: 'default'
-            });
-          }
-        }
-      }
-    }
-
+    // RE-INIEZIONE PERSISTENTE DEI NODI CREATI DA CANVAS (v1.7.8 Multi-Pass Infallibile)
+    MindmapEngine.reinjectAddedNodes(rootNode, filePath);
     return rootNode;
   }
 
@@ -437,9 +500,13 @@ class MindmapEngine {
     };
 
     if (node.children && node.children.length) {
+      const hasHeadings = node.children.some(c => c.type === 'heading');
       for (const child of node.children) {
-        if (level === 'titles' && child.type !== 'heading') {
-          continue;
+        if (level === 'titles') {
+          // Se ci sono intestazioni, filtra per intestazioni. Se la nota è ad elenchi (senza H1/H2), mantieni il primo livello per non svuotare la mappa.
+          if (hasHeadings && child.type !== 'heading') {
+            continue;
+          }
         }
         clone.children.push(MindmapEngine.filterTreeByDetail(child, level));
       }
@@ -751,14 +818,14 @@ class MindmapEngine {
 
       renderedNodes.push(chap);
 
-      const startX = isRight ? rootNode.x + rootNode.width : rootNode.x;
+      const actualIsRight = (chap.x + chap.width / 2) >= (rootNode.x + rootNode.width / 2);
+      const startX = actualIsRight ? rootNode.x + rootNode.width : rootNode.x;
       const startY = rootNode.y + (rootNode.height / 2);
-      const targetX = isRight ? chap.x : chap.x + chap.width;
+      const targetX = actualIsRight ? chap.x : chap.x + chap.width;
       const targetY = chap.y + (chap.height / 2);
-      const dx = Math.abs(targetX - startX) * 0.55;
 
       branchPaths.push({
-        d: MindmapEngine.generateBranchPath(startX, startY, targetX, targetY, isRight, connectorStyle),
+        d: MindmapEngine.generateBranchPath(startX, startY, targetX, targetY, actualIsRight, connectorStyle),
         color,
         fromId: rootNode.id,
         toId: chap.id,
@@ -1074,7 +1141,7 @@ class MindmapEngine {
         child.x = isRight ? parent.x + parent.width + horizontalGap : parent.x - child.width - horizontalGap;
         child.y = startY + (child.subtreeHeight / 2) - (child.height / 2);
 
-        // GARANZIA FISICA ANTI-SOVRAPPOSIZIONE CON IL FRATELLO PRECEDENTE
+        // Garanzia fisica anti-sovrapposizione con il fratello precedente
         if (i > 0) {
           const prevChild = parent.children[i - 1];
           const minY = prevChild.y + prevChild.height + verticalGap;
@@ -1086,13 +1153,15 @@ class MindmapEngine {
 
       renderedNodes.push(child);
 
-      const startX = isRight ? parent.x + parent.width : parent.x;
+      // Calcolo dinamico del lato: se il nodo è stato trascinato dall'altro lato del genitore, connettilo correttamente!
+      const actualIsRight = (child.x + child.width / 2) >= (parent.x + parent.width / 2);
+      const startX = actualIsRight ? parent.x + parent.width : parent.x;
       const startYPoint = parent.y + (parent.height / 2);
-      const targetX = isRight ? child.x : child.x + child.width;
+      const targetX = actualIsRight ? child.x : child.x + child.width;
       const targetYPoint = child.y + (child.height / 2);
 
       branchPaths.push({
-        d: MindmapEngine.generateBranchPath(startX, startYPoint, targetX, targetYPoint, isRight, connectorStyle),
+        d: MindmapEngine.generateBranchPath(startX, startYPoint, targetX, targetYPoint, actualIsRight, connectorStyle),
         color,
         fromId: parent.id,
         toId: child.id,
@@ -1281,29 +1350,67 @@ class MindmapExportModal extends Modal {
     this.orientation = 'landscape';
     this.bgStyle = 'dark';
     this.qualityDpi = 2;
+
+    // Cartiglio, Logo e Testata
     this.includeTitleBlock = true;
+    this.cartiglioType = 'iso'; // 'iso' | 'modern' | 'academic' | 'minimal' | 'banner'
+    this.cartiglioSizePreset = 'standard'; // 'compact' | 'standard' | 'large' | 'custom'
+    this.cartiglioCustomW = 360;
+    this.cartiglioCustomH = 100;
+    this.cartiglioPosition = 'bottom-right'; // 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left'
+
+    // Dati Cartiglio & Intestazione
+    this.projectName = (this.canvas.rawRootNode && this.canvas.rawRootNode.text) ? this.canvas.rawRootNode.text : 'Mappa Concettuale';
+    this.tableTitle = 'Tavola Concettuale 01';
     this.authorName = 'CDS Studio Architettura';
+    this.revisionText = 'Rev. 01 · Scala 1:1';
     this.headerText = 'CDS ARCHITETTURA & DESIGN · MAPPA CONCETTUALE';
     this.stampLogo = '📐 TIMBRO CDS';
-    this.cartiglioWidth = 320;
-    this.cartiglioHeight = 80;
-    this.includeStamp = true;
-    this.stampWidth = 65;
-    this.stampHeight = 65;
-    this.includeSignature = true;
-    this.signatureWidth = 110;
-    this.signatureHeight = 45;
-    this.signatureText = 'Firma: Arch. Vorfreude';
+
+    // Logo Grafico Importato
+    this.logoImageData = null; // DataURL Base64
+    this.logoVaultPath = '';
+    this.logoImgObj = null;
+  }
+
+  getCartiglioDimensions(geo) {
+    if (this.cartiglioType === 'banner') {
+      return { w: geo.targetW, h: 90 };
+    }
+    const presets = {
+      compact: { w: 250, h: 75 },
+      standard: { w: 360, h: 100 },
+      large: { w: 480, h: 130 },
+      custom: { w: Math.max(180, this.cartiglioCustomW || 360), h: Math.max(60, this.cartiglioCustomH || 100) }
+    };
+    return presets[this.cartiglioSizePreset] || presets.standard;
+  }
+
+  getCartiglioCoordinates(boxW, boxH, totalW, totalH, margin = 24) {
+    if (this.cartiglioType === 'banner') {
+      return { x: 0, y: 0 };
+    }
+    switch (this.cartiglioPosition) {
+      case 'bottom-left':
+        return { x: margin, y: totalH - boxH - margin };
+      case 'top-right':
+        return { x: totalW - boxW - margin, y: margin };
+      case 'top-left':
+        return { x: margin, y: margin };
+      case 'bottom-right':
+      default:
+        return { x: totalW - boxW - margin, y: totalH - boxH - margin };
+    }
   }
 
   onOpen() {
     const { contentEl, modalEl } = this;
     if (modalEl) {
       modalEl.addClass('cds-mm-export-modal-window');
-      modalEl.style.width = '94vw';
-      modalEl.style.maxWidth = '1350px';
-      modalEl.style.height = '90vh';
-      modalEl.style.maxHeight = '940px';
+      modalEl.style.width = '95vw';
+      modalEl.style.maxWidth = '1400px';
+      modalEl.style.height = '92vh';
+      modalEl.style.maxHeight = '960px';
       modalEl.style.display = 'flex';
       modalEl.style.flexDirection = 'column';
       modalEl.style.overflow = 'hidden';
@@ -1311,20 +1418,27 @@ class MindmapExportModal extends Modal {
     contentEl.empty();
     contentEl.addClass('cds-mm-export-modal');
 
-    contentEl.createEl('h2', { text: '🎨 Esportazione Professionale Mappa Concettuale (A0 - A6 & Vettoriale)', cls: 'cds-mm-export-title' });
+    contentEl.createEl('h2', {
+      text: '🎨 Esportazione Professionale & Cartiglio (A0 - A6, Vettoriale SVG, Raster HD)',
+      cls: 'cds-mm-export-title'
+    });
 
     const layoutWrap = contentEl.createDiv({ cls: 'cds-mm-export-layout' });
 
-    // Colonna Sinistra Comandi
+    // Colonna Sinistra Comandi & Personalizzazione
     const sidebar = layoutWrap.createDiv({ cls: 'cds-mm-export-sidebar' });
 
-    sidebar.createEl('label', { text: 'Formato File:', cls: 'cds-mm-export-label' });
-    const fmtSelect = sidebar.createEl('select', { cls: 'cds-mm-export-select' });
+    // 1. SEZIONE FORMATO & CARTA
+    const secDoc = sidebar.createDiv({ cls: 'cds-mm-export-section' });
+    secDoc.createEl('div', { text: '📄 FORMATO & PAGINA', cls: 'cds-mm-export-section-title' });
+
+    secDoc.createEl('label', { text: 'Formato File:', cls: 'cds-mm-export-label' });
+    const fmtSelect = secDoc.createEl('select', { cls: 'cds-mm-export-select' });
     [
-      { val: 'png', label: 'PNG (Raster HD ad alta definizione)' },
-      { val: 'svg', label: 'SVG (Vettoriale Completo 100% per CAD/Illustrator)' },
-      { val: 'pdf', label: 'PDF (Stampa Tipografica 1:1)' },
-      { val: 'jpg', label: 'JPG (Compresso Alta Qualità)' }
+      { val: 'png', label: 'PNG HD (Raster ad alta definizione)' },
+      { val: 'svg', label: 'SVG Vettoriale (100% Ingrandibile per CAD/Illustrator)' },
+      { val: 'pdf', label: 'PDF Vettoriale/Tipografico 1:1' },
+      { val: 'jpg', label: 'JPG Compresso Alta Risoluzione' }
     ].forEach(f => {
       const opt = fmtSelect.createEl('option', { value: f.val, text: f.label });
       if (f.val === this.format) opt.selected = true;
@@ -1334,8 +1448,8 @@ class MindmapExportModal extends Modal {
       this.updatePreview();
     };
 
-    sidebar.createEl('label', { text: 'Formato Carta Standard (ISO 216):', cls: 'cds-mm-export-label' });
-    const paperSelect = sidebar.createEl('select', { cls: 'cds-mm-export-select' });
+    secDoc.createEl('label', { text: 'Formato Carta Standard (ISO 216):', cls: 'cds-mm-export-label' });
+    const paperSelect = secDoc.createEl('select', { cls: 'cds-mm-export-select' });
     Object.keys(PAPER_SIZES).forEach(k => {
       const opt = paperSelect.createEl('option', { value: k, text: PAPER_SIZES[k].label });
       if (k === this.paperSize) opt.selected = true;
@@ -1345,20 +1459,20 @@ class MindmapExportModal extends Modal {
       this.updatePreview();
     };
 
-    sidebar.createEl('label', { text: 'Orientamento Pagina:', cls: 'cds-mm-export-label' });
-    const orientSelect = sidebar.createEl('select', { cls: 'cds-mm-export-select' });
-    orientSelect.createEl('option', { value: 'landscape', text: '📐 Orizzontale (Landscape - Larghezza > Altezza)' });
-    orientSelect.createEl('option', { value: 'portrait', text: '📏 Verticale (Portrait - Altezza > Larghezza)' });
+    secDoc.createEl('label', { text: 'Orientamento Pagina:', cls: 'cds-mm-export-label' });
+    const orientSelect = secDoc.createEl('select', { cls: 'cds-mm-export-select' });
+    orientSelect.createEl('option', { value: 'landscape', text: '📐 Orizzontale (Landscape)' });
+    orientSelect.createEl('option', { value: 'portrait', text: '📏 Verticale (Portrait)' });
     orientSelect.value = this.orientation;
     orientSelect.onchange = () => {
       this.orientation = orientSelect.value;
       this.updatePreview();
     };
 
-    sidebar.createEl('label', { text: 'Colore Sfondo:', cls: 'cds-mm-export-label' });
-    const bgSelect = sidebar.createEl('select', { cls: 'cds-mm-export-select' });
+    secDoc.createEl('label', { text: 'Colore Sfondo Foglio:', cls: 'cds-mm-export-label' });
+    const bgSelect = secDoc.createEl('select', { cls: 'cds-mm-export-select' });
     bgSelect.createEl('option', { value: 'dark', text: 'Scuro Grafite (#0d1117)' });
-    bgSelect.createEl('option', { value: 'light', text: 'Chiaro Carta (#ffffff)' });
+    bgSelect.createEl('option', { value: 'light', text: 'Chiaro Carta Bianco (#ffffff)' });
     bgSelect.createEl('option', { value: 'transparent', text: 'Trasparente (PNG / SVG)' });
     bgSelect.value = this.bgStyle;
     bgSelect.onchange = () => {
@@ -1366,38 +1480,224 @@ class MindmapExportModal extends Modal {
       this.updatePreview();
     };
 
-    // Cartiglio e Intestazione
-    const blockBox = sidebar.createDiv({ cls: 'cds-mm-export-cartiglio-box' });
+    // 2. SEZIONE CARTIGLIO, TIMBRO & LOGO
+    const secCart = sidebar.createDiv({ cls: 'cds-mm-export-section' });
+    secCart.createEl('div', { text: '📐 CARTIGLIO, TESTATA & LOGO GRAFICO', cls: 'cds-mm-export-section-title' });
+
+    const blockBox = secCart.createDiv({ cls: 'cds-mm-export-cartiglio-box' });
     const blockCb = blockBox.createEl('input', { type: 'checkbox', attr: { id: 'cds-cb-cart' } });
     blockCb.checked = this.includeTitleBlock;
-    const blockLbl = blockBox.createEl('label', { text: ' Includi Cartiglio / Timbro Professionale e Intestazione', attr: { for: 'cds-cb-cart' } });
+    blockBox.createEl('label', { text: ' Includi Cartiglio / Timbro Professionale', attr: { for: 'cds-cb-cart' } });
     blockCb.onchange = () => {
       this.includeTitleBlock = blockCb.checked;
+      cartDetailsWrap.style.display = this.includeTitleBlock ? 'block' : 'none';
       this.updatePreview();
     };
 
-    sidebar.createEl('label', { text: 'Intestazione Mappa (Header Top):', cls: 'cds-mm-export-label' });
-    const headerInp = sidebar.createEl('input', { cls: 'cds-mm-export-input', value: this.headerText });
-    headerInp.oninput = () => {
-      this.headerText = headerInp.value.trim();
+    const cartDetailsWrap = secCart.createDiv({ cls: 'cds-mm-cart-details-wrap' });
+    cartDetailsWrap.style.display = this.includeTitleBlock ? 'block' : 'none';
+
+    // Tipologia Cartiglio
+    cartDetailsWrap.createEl('label', { text: 'Tipologia / Formato Cartiglio:', cls: 'cds-mm-export-label' });
+    const typeSelect = cartDetailsWrap.createEl('select', { cls: 'cds-mm-export-select' });
+    [
+      { val: 'iso', label: '📐 Tecnico UNI-EN-ISO 7200 (Griglia Squadrata)' },
+      { val: 'modern', label: '🏛️ Studio Architettura & Design (Card Moderna)' },
+      { val: 'academic', label: '🎓 Didattico / Universitario (Tesi/Esame)' },
+      { val: 'minimal', label: '✨ Minimalista Essenziale (Badge Compatto)' },
+      { val: 'banner', label: '🔝 Testata Top a Tutta Larghezza (Header Banner)' }
+    ].forEach(t => {
+      const opt = typeSelect.createEl('option', { value: t.val, text: t.label });
+      if (t.val === this.cartiglioType) opt.selected = true;
+    });
+    typeSelect.onchange = () => {
+      this.cartiglioType = typeSelect.value;
+      customDimRow.style.display = (this.cartiglioSizePreset === 'custom' && this.cartiglioType !== 'banner') ? 'flex' : 'none';
+      posGroup.style.display = (this.cartiglioType === 'banner') ? 'none' : 'block';
       this.updatePreview();
     };
 
-    sidebar.createEl('label', { text: 'Logo / Simbolo Cartiglio:', cls: 'cds-mm-export-label' });
-    const logoInp = sidebar.createEl('input', { cls: 'cds-mm-export-input', value: this.stampLogo });
-    logoInp.oninput = () => {
-      this.stampLogo = logoInp.value.trim() || '📐 TIMBRO CDS';
+    // Dimensione Preset
+    cartDetailsWrap.createEl('label', { text: 'Dimensione Cartiglio:', cls: 'cds-mm-export-label' });
+    const sizeSelect = cartDetailsWrap.createEl('select', { cls: 'cds-mm-export-select' });
+    [
+      { val: 'compact', label: 'Compatto (250 × 75 px)' },
+      { val: 'standard', label: 'Standard (360 × 100 px)' },
+      { val: 'large', label: 'Grande (480 × 130 px)' },
+      { val: 'custom', label: 'Personalizzato (Specifica px)...' }
+    ].forEach(s => {
+      const opt = sizeSelect.createEl('option', { value: s.val, text: s.label });
+      if (s.val === this.cartiglioSizePreset) opt.selected = true;
+    });
+
+    const customDimRow = cartDetailsWrap.createDiv({ cls: 'cds-mm-dimension-row' });
+    customDimRow.style.display = (this.cartiglioSizePreset === 'custom' && this.cartiglioType !== 'banner') ? 'flex' : 'none';
+
+    const wInp = customDimRow.createEl('input', { cls: 'cds-mm-dimension-input', type: 'number', value: this.cartiglioCustomW, attr: { placeholder: 'Larghezza px' } });
+    wInp.oninput = () => {
+      this.cartiglioCustomW = Math.max(150, parseInt(wInp.value, 10) || 360);
+      this.updatePreview();
+    };
+    const hInp = customDimRow.createEl('input', { cls: 'cds-mm-dimension-input', type: 'number', value: this.cartiglioCustomH, attr: { placeholder: 'Altezza px' } });
+    hInp.oninput = () => {
+      this.cartiglioCustomH = Math.max(50, parseInt(hInp.value, 10) || 100);
       this.updatePreview();
     };
 
-    sidebar.createEl('label', { text: 'Firma / Autore Progetto:', cls: 'cds-mm-export-label' });
-    const authorInp = sidebar.createEl('input', { cls: 'cds-mm-export-input', value: this.authorName });
+    sizeSelect.onchange = () => {
+      this.cartiglioSizePreset = sizeSelect.value;
+      customDimRow.style.display = (this.cartiglioSizePreset === 'custom' && this.cartiglioType !== 'banner') ? 'flex' : 'none';
+      this.updatePreview();
+    };
+
+    // Posizione Cartiglio
+    const posGroup = cartDetailsWrap.createDiv();
+    posGroup.style.display = (this.cartiglioType === 'banner') ? 'none' : 'block';
+    posGroup.createEl('label', { text: 'Posizione nel Foglio:', cls: 'cds-mm-export-label' });
+    const posSelect = posGroup.createEl('select', { cls: 'cds-mm-export-select' });
+    [
+      { val: 'bottom-right', label: 'Basso a Destra (Normato)' },
+      { val: 'bottom-left', label: 'Basso a Sinistra' },
+      { val: 'top-right', label: 'Alto a Destra' },
+      { val: 'top-left', label: 'Alto a Sinistra' }
+    ].forEach(p => {
+      const opt = posSelect.createEl('option', { value: p.val, text: p.label });
+      if (p.val === this.cartiglioPosition) opt.selected = true;
+    });
+    posSelect.onchange = () => {
+      this.cartiglioPosition = posSelect.value;
+      this.updatePreview();
+    };
+
+    // LOGO GRAFICO (IMPORTAZIONE IMMAGINE)
+    cartDetailsWrap.createEl('label', { text: 'Logo Grafico (PNG, JPG, SVG):', cls: 'cds-mm-export-label' });
+    const logoRow = cartDetailsWrap.createDiv({ cls: 'cds-mm-logo-row' });
+
+    const fileInp = logoRow.createEl('input', {
+      type: 'file',
+      attr: { accept: 'image/png,image/jpeg,image/svg+xml,image/webp' },
+      cls: 'cds-mm-file-hidden'
+    });
+    fileInp.style.display = 'none';
+
+    const btnUpload = logoRow.createEl('button', {
+      cls: 'cds-mm-btn-secondary',
+      text: '📁 Carica Logo dal PC...'
+    });
+    btnUpload.onclick = () => fileInp.click();
+
+    fileInp.onchange = (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          this.logoImageData = ev.target.result;
+          this.logoImgObj = new Image();
+          this.logoImgObj.onload = () => this.updatePreview();
+          this.logoImgObj.src = this.logoImageData;
+          renderLogoPreview();
+          this.updatePreview();
+          new Notice('✅ Logo caricato: ' + file.name);
+        };
+        reader.readAsDataURL(file);
+      }
+    };
+
+    const vaultLogoInp = cartDetailsWrap.createEl('input', {
+      cls: 'cds-mm-export-input',
+      attr: { placeholder: 'Oppure percorso Vault (es. Allegati/logo.png)' },
+      value: this.logoVaultPath
+    });
+    vaultLogoInp.onchange = async () => {
+      const p = vaultLogoInp.value.trim();
+      this.logoVaultPath = p;
+      if (p) {
+        try {
+          if (await this.app.vault.adapter.exists(p)) {
+            const bin = await this.app.vault.adapter.readBinary(p);
+            const mime = p.endsWith('.svg') ? 'image/svg+xml' : (p.endsWith('.jpg') || p.endsWith('.jpeg') ? 'image/jpeg' : 'image/png');
+            let binary = '';
+            const bytes = new Uint8Array(bin);
+            const len = bytes.byteLength;
+            for (let i = 0; i < len; i++) {
+              binary += String.fromCharCode(bytes[i]);
+            }
+            const base64 = btoa(binary);
+            this.logoImageData = 'data:' + mime + ';base64,' + base64;
+            this.logoImgObj = new Image();
+            this.logoImgObj.onload = () => this.updatePreview();
+            this.logoImgObj.src = this.logoImageData;
+            renderLogoPreview();
+            this.updatePreview();
+            new Notice('✅ Logo caricato dal Vault: ' + p);
+          } else {
+            new Notice('⚠️ File non trovato nel Vault: ' + p);
+          }
+        } catch (err) {
+          console.warn('Vault image load error:', err);
+        }
+      }
+    };
+
+    const logoPreviewBox = cartDetailsWrap.createDiv({ cls: 'cds-mm-logo-preview-box' });
+    const renderLogoPreview = () => {
+      logoPreviewBox.empty();
+      if (this.logoImageData) {
+        logoPreviewBox.createEl('img', { cls: 'cds-mm-logo-thumb', attr: { src: this.logoImageData } });
+        const btnRemove = logoPreviewBox.createEl('button', { cls: 'cds-mm-mini-btn cds-mm-btn-danger', text: '❌ Rimuovi' });
+        btnRemove.onclick = () => {
+          this.logoImageData = null;
+          this.logoImgObj = null;
+          vaultLogoInp.value = '';
+          fileInp.value = '';
+          renderLogoPreview();
+          this.updatePreview();
+        };
+      }
+    };
+    renderLogoPreview();
+
+    // Campi Testuali del Cartiglio
+    cartDetailsWrap.createEl('label', { text: 'Nome Progetto / Argomento:', cls: 'cds-mm-export-label' });
+    const projInp = cartDetailsWrap.createEl('input', { cls: 'cds-mm-export-input', value: this.projectName });
+    projInp.oninput = () => {
+      this.projectName = projInp.value.trim() || 'Mappa Concettuale';
+      this.updatePreview();
+    };
+
+    cartDetailsWrap.createEl('label', { text: 'Tavola / Sottotitolo:', cls: 'cds-mm-export-label' });
+    const tableInp = cartDetailsWrap.createEl('input', { cls: 'cds-mm-export-input', value: this.tableTitle });
+    tableInp.oninput = () => {
+      this.tableTitle = tableInp.value.trim() || 'Tavola Concettuale 01';
+      this.updatePreview();
+    };
+
+    cartDetailsWrap.createEl('label', { text: 'Progettista / Autore:', cls: 'cds-mm-export-label' });
+    const authorInp = cartDetailsWrap.createEl('input', { cls: 'cds-mm-export-input', value: this.authorName });
     authorInp.oninput = () => {
       this.authorName = authorInp.value.trim() || 'CDS Studio';
       this.updatePreview();
     };
 
-    const bDownload = sidebar.createEl('button', { cls: 'cds-mm-btn-primary', text: '💾 Esporta e Scarica (Vault + PC)' });
+    cartDetailsWrap.createEl('label', { text: 'Revisione & Scala:', cls: 'cds-mm-export-label' });
+    const revInp = cartDetailsWrap.createEl('input', { cls: 'cds-mm-export-input', value: this.revisionText });
+    revInp.oninput = () => {
+      this.revisionText = revInp.value.trim() || 'Rev. 01 · Scala 1:1';
+      this.updatePreview();
+    };
+
+    cartDetailsWrap.createEl('label', { text: 'Simbolo Alternativo (Testo / Icona):', cls: 'cds-mm-export-label' });
+    const logoTxtInp = cartDetailsWrap.createEl('input', { cls: 'cds-mm-export-input', value: this.stampLogo });
+    logoTxtInp.oninput = () => {
+      this.stampLogo = logoTxtInp.value.trim() || '📐 TIMBRO CDS';
+      this.updatePreview();
+    };
+
+    // PULSANTE AZIONE FINALE
+    const bDownload = sidebar.createEl('button', {
+      cls: 'cds-mm-btn-primary cds-mm-export-btn-main',
+      text: '💾 Esporta e Scarica (Vault + PC)'
+    });
     bDownload.onclick = () => this.doExport();
 
     // Colonna Destra Anteprima Ampia
@@ -1417,8 +1717,7 @@ class MindmapExportModal extends Modal {
       if (n.y + n.height > maxY) maxY = n.y + n.height;
     }
 
-    // Margine compatto e proporzionato attorno al contenuto
-    const padding = 55;
+    const padding = 65;
     const contentW = Math.max(200, (maxX - minX) + padding * 2);
     const contentH = Math.max(150, (maxY - minY) + padding * 2);
 
@@ -1447,6 +1746,23 @@ class MindmapExportModal extends Modal {
     return { targetW, targetH, minX, minY, maxX, maxY, contentW, contentH, sheetW, sheetH, isLandscape };
   }
 
+  computeSafeCanvasSize(targetW, targetH, requestedDpi) {
+    const MAX_DIM = 7680;
+    const MAX_PIXELS = 36000000;
+    let finalDpi = requestedDpi;
+    let rawW = Math.round(targetW * finalDpi);
+    let rawH = Math.round(targetH * finalDpi);
+
+    if (rawW > MAX_DIM || rawH > MAX_DIM || (rawW * rawH) > MAX_PIXELS) {
+      const scaleDim = Math.min(MAX_DIM / targetW, MAX_DIM / targetH);
+      const scalePixels = Math.sqrt(MAX_PIXELS / (targetW * targetH));
+      finalDpi = Math.max(1, Math.min(finalDpi, Math.min(scaleDim, scalePixels) * 0.995));
+      rawW = Math.floor(targetW * finalDpi);
+      rawH = Math.floor(targetH * finalDpi);
+    }
+    return { w: rawW, h: rawH, dpi: finalDpi };
+  }
+
   drawNodeOnExportCanvas(ctx, n, bgStyle, isPreview = false, scale = 1) {
     const isLight = bgStyle === 'light';
     const cardBg = n.isRoot 
@@ -1456,7 +1772,6 @@ class MindmapExportModal extends Modal {
     const textColor = n.isRoot ? '#ffffff' : (isLight ? '#0f172a' : '#f8fafc');
     const bodyColor = isLight ? '#334155' : '#cbd5e1';
 
-    // Disegna sfondo scheda arrotondata
     ctx.fillStyle = cardBg;
     ctx.strokeStyle = borderColor;
     ctx.lineWidth = isPreview ? 1.5 : 2;
@@ -1466,7 +1781,6 @@ class MindmapExportModal extends Modal {
     ctx.fill();
     ctx.stroke();
 
-    // 1. Disegna Titolo Nodo con word-wrap
     ctx.fillStyle = textColor;
     ctx.font = n.isRoot ? 'bold 15px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' : 'bold 12.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     ctx.textBaseline = 'top';
@@ -1492,7 +1806,6 @@ class MindmapExportModal extends Modal {
       curY += 17;
     }
 
-    // 2. Disegna Testo Completo Corpo (se attivo e presente)
     const hasFull = (this.canvas.detailLevel === 'full' || n.isExpanded) && n.bodyText && n.bodyText.trim();
     if (hasFull) {
       curY += 2;
@@ -1535,7 +1848,6 @@ class MindmapExportModal extends Modal {
       }
     }
 
-    // 3. Badge PDF se presente
     if (n.pdfLink) {
       const badgeY = n.y + n.height - 20;
       ctx.fillStyle = 'rgba(239, 68, 68, 0.18)';
@@ -1552,11 +1864,139 @@ class MindmapExportModal extends Modal {
     }
   }
 
+  drawTitleBlockOnCanvas(ctx, totalW, totalH, scale = 1) {
+    if (!this.includeTitleBlock) return;
+
+    const s = scale || 1;
+    const isLight = this.bgStyle === 'light';
+    const geo = { targetW: totalW / s, targetH: totalH / s };
+    const dim = this.getCartiglioDimensions(geo);
+    const coords = this.getCartiglioCoordinates(dim.w, dim.h, geo.targetW, geo.targetH, 24);
+
+    const bx = coords.x * s;
+    const by = coords.y * s;
+    const bw = dim.w * s;
+    const bh = dim.h * s;
+    const isBanner = this.cartiglioType === 'banner';
+
+    ctx.save();
+    ctx.fillStyle = isLight ? '#f1f5f9' : '#161b2e';
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = Math.max(1, 1.8 * s);
+
+    if (isBanner) {
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.strokeRect(bx, by, bw, bh);
+    } else {
+      ctx.beginPath();
+      ctx.roundRect(bx, by, bw, bh, 8 * s);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    let textOffsetX = bx + 16 * s;
+
+    // Disegno Logo Grafico (se presente)
+    if (this.logoImgObj && this.logoImgObj.complete && this.logoImgObj.naturalWidth > 0) {
+      const logoSize = Math.min(bh - 18 * s, 64 * s);
+      const logoX = bx + 14 * s;
+      const logoY = by + (bh - logoSize) / 2;
+      try {
+        ctx.drawImage(this.logoImgObj, logoX, logoY, logoSize, logoSize);
+        textOffsetX = logoX + logoSize + 14 * s;
+      } catch (err) {
+        console.warn('Canvas draw logo error:', err);
+      }
+    }
+
+    if (this.cartiglioType === 'iso') {
+      // Griglia Tecnica UNI-ISO
+      const colX = Math.max(textOffsetX + 4 * s, bx + bw * 0.28);
+      ctx.beginPath();
+      ctx.moveTo(colX, by);
+      ctx.lineTo(colX, by + bh);
+      ctx.moveTo(colX, by + bh * 0.5);
+      ctx.lineTo(bx + bw, by + bh * 0.5);
+      ctx.stroke();
+
+      if (!this.logoImgObj) {
+        ctx.fillStyle = '#38bdf8';
+        ctx.font = 'bold ' + Math.max(8, Math.round(11 * s)) + 'px sans-serif';
+        ctx.fillText(this.stampLogo, bx + 12 * s, by + bh * 0.45);
+      }
+
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = 'bold ' + Math.max(7, Math.round(9.5 * s)) + 'px sans-serif';
+      ctx.fillText(`STUDIO / ENTE: ${this.authorName.toUpperCase()}`, colX + 10 * s, by + 16 * s);
+
+      ctx.fillStyle = isLight ? '#0f172a' : '#ffffff';
+      ctx.font = 'bold ' + Math.max(8, Math.round(11 * s)) + 'px sans-serif';
+      ctx.fillText(`PROGETTO: ${this.projectName.slice(0, 32)}`, colX + 10 * s, by + 34 * s);
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = Math.max(7, Math.round(9 * s)) + 'px sans-serif';
+      ctx.fillText(`TAVOLA: ${this.tableTitle}`, colX + 10 * s, by + bh * 0.5 + 18 * s);
+      ctx.fillText(this.revisionText, bx + bw - (130 * s), by + bh * 0.5 + 18 * s);
+
+    } else if (this.cartiglioType === 'modern') {
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = 'bold ' + Math.max(9, Math.round(12 * s)) + 'px sans-serif';
+      ctx.fillText(this.stampLogo, textOffsetX, by + 22 * s);
+
+      ctx.fillStyle = isLight ? '#0f172a' : '#ffffff';
+      ctx.font = 'bold ' + Math.max(9, Math.round(11.5 * s)) + 'px sans-serif';
+      ctx.fillText(this.projectName.slice(0, 34), textOffsetX, by + 44 * s);
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = Math.max(7, Math.round(9 * s)) + 'px sans-serif';
+      ctx.fillText(`${this.authorName} · ${this.tableTitle} · ${this.revisionText}`, textOffsetX, by + 66 * s);
+
+    } else if (this.cartiglioType === 'academic') {
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = 'bold ' + Math.max(8, Math.round(10 * s)) + 'px sans-serif';
+      ctx.fillText('UNIVERSITÀ DEGLI STUDI · CORSO DI LAUREA', textOffsetX, by + 18 * s);
+
+      ctx.fillStyle = isLight ? '#0f172a' : '#ffffff';
+      ctx.font = 'bold ' + Math.max(9, Math.round(12 * s)) + 'px sans-serif';
+      ctx.fillText(this.projectName.slice(0, 34), textOffsetX, by + 38 * s);
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = Math.max(7, Math.round(9 * s)) + 'px sans-serif';
+      ctx.fillText(`Candidato: ${this.authorName} · ${this.tableTitle} · A.A. 2026/2027`, textOffsetX, by + 60 * s);
+
+    } else if (this.cartiglioType === 'minimal') {
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = 'bold ' + Math.max(8, Math.round(10 * s)) + 'px sans-serif';
+      ctx.fillText(this.stampLogo, textOffsetX, by + 24 * s);
+
+      ctx.fillStyle = isLight ? '#0f172a' : '#ffffff';
+      ctx.font = Math.max(8, Math.round(10 * s)) + 'px sans-serif';
+      ctx.fillText(`${this.projectName.slice(0, 24)} · ${this.authorName} · ${this.revisionText}`, textOffsetX, by + 46 * s);
+
+    } else if (this.cartiglioType === 'banner') {
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = 'bold ' + Math.max(10, Math.round(14 * s)) + 'px sans-serif';
+      ctx.fillText(this.headerText, textOffsetX, by + 32 * s);
+
+      ctx.fillStyle = isLight ? '#0f172a' : '#ffffff';
+      ctx.font = Math.max(9, Math.round(11 * s)) + 'px sans-serif';
+      ctx.fillText(`${this.projectName} · ${this.tableTitle}`, textOffsetX, by + 56 * s);
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = Math.max(8, Math.round(10 * s)) + 'px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(`${this.authorName} · ${this.paperSize} ${this.orientation} · ${this.revisionText}`, bw - 24 * s, by + 44 * s);
+      ctx.textAlign = 'left';
+    }
+
+    ctx.restore();
+  }
+
   updatePreview() {
     const geo = this.calculateGeometry();
     const pCanvas = this.previewCanvas;
-    const boxW = (this.previewBox && this.previewBox.clientWidth) ? Math.max(360, this.previewBox.clientWidth - 40) : 660;
-    const boxH = (this.previewBox && this.previewBox.clientHeight) ? Math.max(300, this.previewBox.clientHeight - 40) : 560;
+    const boxW = (this.previewBox && this.previewBox.clientWidth) ? Math.max(360, this.previewBox.clientWidth - 40) : 680;
+    const boxH = (this.previewBox && this.previewBox.clientHeight) ? Math.max(300, this.previewBox.clientHeight - 40) : 580;
     const scaleW = boxW / geo.targetW;
     const scaleH = boxH / geo.targetH;
     const scale = Math.min(scaleW, scaleH);
@@ -1575,19 +2015,17 @@ class MindmapExportModal extends Modal {
       ctx.fillRect(0, 0, pCanvas.width, pCanvas.height);
     }
 
-    // Bordo del foglio
     ctx.strokeStyle = 'rgba(56, 189, 248, 0.5)';
     ctx.lineWidth = 2;
     ctx.strokeRect(2, 2, pCanvas.width - 4, pCanvas.height - 4);
 
-    const offsetX = (geo.targetW - geo.contentW) / 2 + 55 - geo.minX;
-    const offsetY = (geo.targetH - geo.contentH) / 2 + 55 - geo.minY;
+    const offsetX = (geo.targetW - geo.contentW) / 2 + 65 - geo.minX;
+    const offsetY = (geo.targetH - geo.contentH) / 2 + 65 - geo.minY;
 
     ctx.save();
     ctx.scale(scale, scale);
     ctx.translate(offsetX, offsetY);
 
-    // Connessioni
     for (const p of this.canvas.renderedPaths || []) {
       ctx.strokeStyle = p.color || '#38bdf8';
       ctx.lineWidth = 2.6;
@@ -1595,64 +2033,27 @@ class MindmapExportModal extends Modal {
       ctx.stroke(path2d);
     }
 
-    // Nodi con testo completo
     for (const n of this.canvas.renderedNodes || []) {
       this.drawNodeOnExportCanvas(ctx, n, this.bgStyle, true, scale);
     }
 
     ctx.restore();
 
-    // Cartiglio
     if (this.includeTitleBlock) {
       this.drawTitleBlockOnCanvas(ctx, pCanvas.width, pCanvas.height, scale);
     }
   }
 
-  drawTitleBlockOnCanvas(ctx, w, h, scale) {
-    const s = scale || 1;
-    if (this.headerText) {
-      ctx.fillStyle = '#38bdf8';
-      ctx.font = 'bold ' + Math.max(9, Math.round(12 * s)) + 'px sans-serif';
-      ctx.fillText(this.headerText.slice(0, 60), 16 * s, 22 * s);
-    }
-
-    if (!this.includeTitleBlock) return;
-
-    const boxW = Math.round(this.cartiglioWidth * s);
-    const boxH = Math.round(this.cartiglioHeight * s);
-    const boxX = w - boxW - (12 * s);
-    const boxY = h - boxH - (12 * s);
-
-    ctx.fillStyle = this.bgStyle === 'light' ? '#f1f5f9' : '#161b2e';
-    ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 1.5;
-    ctx.fillRect(boxX, boxY, boxW, boxH);
-    ctx.strokeRect(boxX, boxY, boxW, boxH);
-
-    ctx.fillStyle = '#38bdf8';
-    ctx.font = 'bold ' + Math.max(8, Math.round(11 * s)) + 'px sans-serif';
-    ctx.fillText(this.stampLogo, boxX + 8 * s, boxY + 16 * s);
-
-    ctx.fillStyle = this.bgStyle === 'light' ? '#0f172a' : '#ffffff';
-    ctx.font = Math.max(8, Math.round(10 * s)) + 'px sans-serif';
-    ctx.fillText((this.canvas.rawRootNode.text || 'Mappa').slice(0, 28), boxX + 8 * s, boxY + 34 * s);
-
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = Math.max(7, Math.round(9 * s)) + 'px sans-serif';
-    ctx.fillText(`${this.paperSize} ${this.orientation} · ${this.authorName}`, boxX + 8 * s, boxY + 52 * s);
-  }
-
   async doExport() {
-    const title = (this.canvas.rawRootNode.text || 'mindmap').replace(/[/\\?%*:|"<>]/g, '_');
+    const title = (this.projectName || 'mindmap').replace(/[/\\?%*:|"<>]/g, '_');
     const ext = this.format;
     const fileName = `${title}_${this.paperSize}_${this.orientation}.${ext}`;
     const geo = this.calculateGeometry();
 
-    // 1. ESPORTAZIONE VETTORIALE SVG COMPLETA CON TESTO MULTILINEA
+    // 1. ESPORTAZIONE VETTORIALE SVG (Zero perdita di qualità, CAD / Illustrator compatibile)
     if (this.format === 'svg') {
       const svgContent = this.generateCompleteVectorSVG(geo);
 
-      // Salva sempre direttamente nel Vault Obsidian
       try {
         const exportFolder = 'Mappe Esportate';
         if (!(await this.app.vault.adapter.exists(exportFolder))) {
@@ -1664,7 +2065,6 @@ class MindmapExportModal extends Modal {
         console.warn('[EXPORT SVG] Vault write error:', err);
       }
 
-      // Download sul browser / PC
       try {
         const blob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
         const url = URL.createObjectURL(blob);
@@ -1682,21 +2082,22 @@ class MindmapExportModal extends Modal {
         console.warn('[EXPORT SVG] Download error:', err);
       }
 
-      new Notice(`✅ Mappa SVG salvata in "Mappe Esportate" e scaricata!`, 6000);
+      new Notice('✅ Mappa SVG vettoriale salvata in "Mappe Esportate" e scaricata!', 6000);
       this.close();
       return;
     }
 
-    // 2. ESPORTAZIONE RASTER HD (PNG, JPG, PDF) CON ALTA DENSITÀ E TESTO LEGGIBILE
-    const dpiMap = { A6: 4, A5: 4, A4: 3.5, A3: 3, A2: 2.5, A1: 2, A0: 1.8, Auto: 2.5 };
-    const dpi = dpiMap[this.paperSize] || this.qualityDpi || 2.5;
+    // 2. ESPORTAZIONE RASTER HD (PNG, JPG, PDF) CON SAFE SIZING ANTI-CRASH
+    const dpiMap = { A6: 4, A5: 3.8, A4: 3.2, A3: 2.8, A2: 2.2, A1: 1.8, A0: 1.5, Auto: 2.5 };
+    const requestedDpi = dpiMap[this.paperSize] || this.qualityDpi || 2.5;
+    const safeDim = this.computeSafeCanvasSize(geo.targetW, geo.targetH, requestedDpi);
 
     const exportCanvas = document.createElement('canvas');
-    exportCanvas.width = Math.round(geo.targetW * dpi);
-    exportCanvas.height = Math.round(geo.targetH * dpi);
+    exportCanvas.width = safeDim.w;
+    exportCanvas.height = safeDim.h;
 
     const ctx = exportCanvas.getContext('2d');
-    ctx.scale(dpi, dpi);
+    ctx.scale(safeDim.dpi, safeDim.dpi);
 
     if (this.bgStyle === 'light') {
       ctx.fillStyle = '#ffffff';
@@ -1706,13 +2107,12 @@ class MindmapExportModal extends Modal {
       ctx.fillRect(0, 0, geo.targetW, geo.targetH);
     }
 
-    const offsetX = (geo.targetW - geo.contentW) / 2 + 55 - geo.minX;
-    const offsetY = (geo.targetH - geo.contentH) / 2 + 55 - geo.minY;
+    const offsetX = (geo.targetW - geo.contentW) / 2 + 65 - geo.minX;
+    const offsetY = (geo.targetH - geo.contentH) / 2 + 65 - geo.minY;
 
     ctx.save();
     ctx.translate(offsetX, offsetY);
 
-    // Connessioni
     for (const p of this.canvas.renderedPaths || []) {
       ctx.strokeStyle = p.color || '#38bdf8';
       ctx.lineWidth = 2.8;
@@ -1720,43 +2120,19 @@ class MindmapExportModal extends Modal {
       ctx.stroke(path2d);
     }
 
-    // Nodi con disegno completo del testo
     for (const n of this.canvas.renderedNodes || []) {
       this.drawNodeOnExportCanvas(ctx, n, this.bgStyle, false, 1);
     }
 
     ctx.restore();
 
-    // Cartiglio
     if (this.includeTitleBlock) {
-      const boxW = 340;
-      const boxH = 90;
-      const boxX = geo.targetW - boxW - 24;
-      const boxY = geo.targetH - boxH - 24;
-
-      ctx.fillStyle = this.bgStyle === 'light' ? '#f8fafc' : '#161b2e';
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 2;
-      ctx.fillRect(boxX, boxY, boxW, boxH);
-      ctx.strokeRect(boxX, boxY, boxW, boxH);
-
-      ctx.fillStyle = '#38bdf8';
-      ctx.font = 'bold 14px sans-serif';
-      ctx.fillText('📐 CDS STUDIO ARCHITETTURA', boxX + 14, boxY + 22);
-
-      ctx.fillStyle = this.bgStyle === 'light' ? '#0f172a' : '#ffffff';
-      ctx.font = '13px sans-serif';
-      ctx.fillText(this.canvas.rawRootNode.text || 'Mappa Concettuale', boxX + 14, boxY + 44);
-
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = '11px sans-serif';
-      ctx.fillText(`Formato: ${this.paperSize} ${this.orientation} · ${new Date().toISOString().slice(0, 10)} · ${this.authorName}`, boxX + 14, boxY + 68);
+      this.drawTitleBlockOnCanvas(ctx, exportCanvas.width, exportCanvas.height, safeDim.dpi);
     }
 
     if (this.format === 'pdf') {
       const dataUrl = exportCanvas.toDataURL('image/jpeg', 0.95);
 
-      // Salva copia HD nel Vault
       try {
         const arrayBuffer = await (await fetch(dataUrl)).arrayBuffer();
         const exportFolder = 'Mappe Esportate';
@@ -1768,7 +2144,6 @@ class MindmapExportModal extends Modal {
         console.warn('[EXPORT PDF] Vault write error:', err);
       }
 
-      // Avvia stampa PDF tramite iframe isolato (evita blocchi popup di Electron)
       let iframe = document.getElementById('cds-mm-print-frame');
       if (iframe) iframe.remove();
       iframe = document.createElement('iframe');
@@ -1810,20 +2185,35 @@ class MindmapExportModal extends Modal {
         }, 60000);
       }, 400);
 
-      new Notice(`📄 Finestra di stampa PDF avviata! Copia salvata in "Mappe Esportate".`, 6000);
+      new Notice('📄 Finestra di stampa PDF avviata! Copia HD salvata in "Mappe Esportate".', 6000);
       this.close();
       return;
     }
 
-    // Per PNG e JPG: Salva su Vault e scarica su disco
+    // 3. PNG & JPG: SALVATAGGIO CON FALLBACK DOPPIO
     const mime = this.format === 'jpg' ? 'image/jpeg' : 'image/png';
-    exportCanvas.toBlob(async (blob) => {
+
+    const saveAndDownloadBlob = async (blob) => {
       if (!blob) {
-        new Notice("❌ Errore nella generazione dell'immagine.");
+        // Fallback 1: estrai dataURL da exportCanvas e converti in Blob
+        try {
+          const dataUrl = exportCanvas.toDataURL(mime, 0.92);
+          const parts = dataUrl.split(',');
+          const bstr = atob(parts[1]);
+          let n = bstr.length;
+          const u8arr = new Uint8Array(n);
+          while (n--) u8arr[n] = bstr.charCodeAt(n);
+          blob = new Blob([u8arr], { type: mime });
+        } catch (e) {
+          console.error('DataURL fallback error:', e);
+        }
+      }
+
+      if (!blob) {
+        new Notice("❌ Impossibile generare l'immagine con questa risoluzione di sistema. Si consiglia l'esportazione in SVG Vettoriale o la riduzione del formato.", 8000);
         return;
       }
 
-      // 1. Salva nel Vault Obsidian
       try {
         const arrayBuffer = await blob.arrayBuffer();
         const exportFolder = 'Mappe Esportate';
@@ -1836,7 +2226,6 @@ class MindmapExportModal extends Modal {
         console.warn('[EXPORT] Vault save error:', err);
       }
 
-      // 2. Download su disco
       try {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -1850,11 +2239,18 @@ class MindmapExportModal extends Modal {
           URL.revokeObjectURL(url);
         }, 3000);
       } catch (err) {
-        console.warn('[EXPORT] Download link error:', err);
+        console.warn('[EXPORT] Download error:', err);
       }
 
-      new Notice(`✅ Mappa salvata in "Mappe Esportate" e scaricata su PC!`, 6000);
-    }, mime, 0.95);
+      new Notice(`✅ Mappa ${this.format.toUpperCase()} salvata in "Mappe Esportate" e scaricata su PC!`, 6000);
+    };
+
+    try {
+      exportCanvas.toBlob(saveAndDownloadBlob, mime, 0.95);
+    } catch (err) {
+      console.warn('toBlob exception, attempting direct dataUrl fallback:', err);
+      await saveAndDownloadBlob(null);
+    }
 
     this.close();
   }
@@ -1863,8 +2259,8 @@ class MindmapExportModal extends Modal {
     const bg = this.bgStyle === 'light' ? '#ffffff' : (this.bgStyle === 'transparent' ? 'none' : '#0d1117');
     const textFill = this.bgStyle === 'light' ? '#0f172a' : '#ffffff';
     const bodyFill = this.bgStyle === 'light' ? '#334155' : '#cbd5e1';
-    const offsetX = (geo.targetW - geo.contentW) / 2 + 55 - geo.minX;
-    const offsetY = (geo.targetH - geo.contentH) / 2 + 55 - geo.minY;
+    const offsetX = (geo.targetW - geo.contentW) / 2 + 65 - geo.minX;
+    const offsetY = (geo.targetH - geo.contentH) / 2 + 65 - geo.minY;
 
     let svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(geo.targetW)}" height="${Math.round(geo.targetH)}" viewBox="0 0 ${Math.round(geo.targetW)} ${Math.round(geo.targetH)}">
@@ -1884,7 +2280,6 @@ class MindmapExportModal extends Modal {
 
     svg += `<g transform="translate(${offsetX}, ${offsetY})">\n`;
 
-    // Connessioni
     for (const p of this.canvas.renderedPaths || []) {
       svg += `  <path d="${p.d}" stroke="${p.color || '#38bdf8'}" class="branch-line"/>\n`;
       if (p.edgeText) {
@@ -1906,16 +2301,14 @@ class MindmapExportModal extends Modal {
       }
     }
 
-    // Nodi con titoli e testo completo su linee tspan
     for (const n of this.canvas.renderedNodes || []) {
       const fill = n.isRoot ? '#2563eb' : (this.bgStyle === 'light' ? '#f8fafc' : '#1a2238');
       const stroke = n.customColor || (n.isRoot ? '#60a5fa' : n.color || '#38bdf8');
-      
+
       svg += `  <g class="node-card">
     <rect x="${n.x}" y="${n.y}" width="${n.width}" height="${n.height}" rx="8" fill="${fill}" stroke="${stroke}" stroke-width="2"/>
 `;
 
-      // Word wrap per il titolo
       const maxChar = Math.max(16, Math.floor((n.width - 24) / 7.5));
       const titleLines = [];
       const words = (n.text || '').split(' ');
@@ -1939,7 +2332,6 @@ class MindmapExportModal extends Modal {
       });
       svg += `    </text>\n`;
 
-      // Testo completo del paragrafo
       const hasFull = (this.canvas.detailLevel === 'full' || n.isExpanded) && n.bodyText && n.bodyText.trim();
       if (hasFull) {
         tY += 4;
@@ -1977,28 +2369,66 @@ class MindmapExportModal extends Modal {
 
     svg += `</g>\n`;
 
-    // Cartiglio
+    // Cartiglio Vettoriale SVG
     if (this.includeTitleBlock) {
-      const boxW = 360;
-      const boxH = 96;
-      const boxX = geo.targetW - boxW - 24;
-      const boxY = geo.targetH - boxH - 24;
+      const dim = this.getCartiglioDimensions(geo);
+      const coords = this.getCartiglioCoordinates(dim.w, dim.h, geo.targetW, geo.targetH, 24);
+      const bx = coords.x, by = coords.y, bw = dim.w, bh = dim.h;
+      const isBanner = this.cartiglioType === 'banner';
       const cFill = this.bgStyle === 'light' ? '#f1f5f9' : '#161b2e';
+      const cleanProj = this.projectName.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const cleanAuthor = this.authorName.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const cleanTable = this.tableTitle.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const cleanRev = this.revisionText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       const cleanLogo = this.stampLogo.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const cleanTitle = (this.canvas.rawRootNode.text || 'Mappa').slice(0, 36).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-      svg += `<g class="cartiglio" transform="translate(${boxX}, ${boxY})">
-  <rect width="${boxW}" height="${boxH}" rx="8" fill="${cFill}" stroke="#38bdf8" stroke-width="2"/>
-  <text x="16" y="26" font-family="sans-serif" font-size="14" font-weight="bold" fill="#38bdf8">${cleanLogo}</text>
-  <text x="16" y="52" font-family="sans-serif" font-size="13" font-weight="600" fill="${textFill}">${cleanTitle}</text>
-  <text x="16" y="76" font-family="sans-serif" font-size="11" fill="#94a3b8">Formato ${this.paperSize} ${this.orientation} · ${new Date().toISOString().slice(0, 10)} · ${this.authorName}</text>
-</g>\n`;
+      svg += `<g class="cartiglio" transform="translate(${bx}, ${by})">\n`;
+      svg += `  <rect width="${bw}" height="${bh}" rx="${isBanner ? 0 : 8}" fill="${cFill}" stroke="#38bdf8" stroke-width="2"/>\n`;
+
+      let textOffX = 18;
+      if (this.logoImageData) {
+        const logoSz = Math.min(bh - 18, 64);
+        const logoY = (bh - logoSz) / 2;
+        svg += `  <image href="${this.logoImageData}" x="14" y="${logoY}" width="${logoSz}" height="${logoSz}" preserveAspectRatio="xMidYMid meet"/>\n`;
+        textOffX = 14 + logoSz + 14;
+      }
+
+      if (this.cartiglioType === 'iso') {
+        const colX = Math.max(textOffX + 4, bw * 0.28);
+        svg += `  <line x1="${colX}" y1="0" x2="${colX}" y2="${bh}" stroke="#38bdf8" stroke-width="1.2"/>\n`;
+        svg += `  <line x1="${colX}" y1="${bh * 0.5}" x2="${bw}" y2="${bh * 0.5}" stroke="#38bdf8" stroke-width="1.2"/>\n`;
+        if (!this.logoImageData) {
+          svg += `  <text x="14" y="${bh * 0.5 + 4}" font-family="sans-serif" font-size="12" font-weight="bold" fill="#38bdf8">${cleanLogo}</text>\n`;
+        }
+        svg += `  <text x="${colX + 12}" y="18" font-family="sans-serif" font-size="10" font-weight="bold" fill="#38bdf8">STUDIO / ENTE: ${cleanAuthor.toUpperCase()}</text>\n`;
+        svg += `  <text x="${colX + 12}" y="38" font-family="sans-serif" font-size="13" font-weight="bold" fill="${textFill}">PROGETTO: ${cleanProj.slice(0, 36)}</text>\n`;
+        svg += `  <text x="${colX + 12}" y="${bh * 0.5 + 24}" font-family="sans-serif" font-size="11" fill="#94a3b8">TAVOLA: ${cleanTable}</text>\n`;
+        svg += `  <text x="${bw - 150}" y="${bh * 0.5 + 24}" font-family="sans-serif" font-size="11" fill="#94a3b8">${cleanRev}</text>\n`;
+      } else if (this.cartiglioType === 'modern') {
+        svg += `  <text x="${textOffX}" y="28" font-family="sans-serif" font-size="14" font-weight="bold" fill="#38bdf8">${cleanLogo}</text>\n`;
+        svg += `  <text x="${textOffX}" y="52" font-family="sans-serif" font-size="13" font-weight="600" fill="${textFill}">${cleanProj.slice(0, 36)}</text>\n`;
+        svg += `  <text x="${textOffX}" y="76" font-family="sans-serif" font-size="11" fill="#94a3b8">${cleanAuthor} · ${cleanTable} · ${cleanRev}</text>\n`;
+      } else if (this.cartiglioType === 'academic') {
+        svg += `  <text x="${textOffX}" y="22" font-family="sans-serif" font-size="11" font-weight="bold" fill="#38bdf8">UNIVERSITÀ DEGLI STUDI · CORSO DI LAUREA</text>\n`;
+        svg += `  <text x="${textOffX}" y="44" font-family="sans-serif" font-size="13" font-weight="600" fill="${textFill}">${cleanProj.slice(0, 36)}</text>\n`;
+        svg += `  <text x="${textOffX}" y="68" font-family="sans-serif" font-size="11" fill="#94a3b8">Candidato: ${cleanAuthor} · ${cleanTable} · A.A. 2026/2027</text>\n`;
+      } else if (this.cartiglioType === 'minimal') {
+        svg += `  <text x="${textOffX}" y="28" font-family="sans-serif" font-size="12" font-weight="bold" fill="#38bdf8">${cleanLogo}</text>\n`;
+        svg += `  <text x="${textOffX}" y="50" font-family="sans-serif" font-size="11" fill="${textFill}">${cleanProj.slice(0, 24)} · ${cleanAuthor} · ${cleanRev}</text>\n`;
+      } else if (this.cartiglioType === 'banner') {
+        svg += `  <text x="${textOffX}" y="36" font-family="sans-serif" font-size="16" font-weight="bold" fill="#38bdf8">${this.headerText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</text>\n`;
+        svg += `  <text x="${textOffX}" y="62" font-family="sans-serif" font-size="13" fill="${textFill}">${cleanProj} · ${cleanTable}</text>\n`;
+        svg += `  <text x="${bw - 24}" y="50" font-family="sans-serif" font-size="12" fill="#94a3b8" text-anchor="end">${cleanAuthor} · ${cleanRev}</text>\n`;
+      }
+
+      svg += `</g>\n`;
     }
 
     svg += `</svg>`;
     return svg;
   }
 }
+
 
 // ==========================================================================
 // 3. MindmapCanvas: Controller con Foglio di Stampa su Canvas e Toolbar
@@ -2041,37 +2471,7 @@ class MindmapCanvas {
     if (this.plugin && this.plugin.settings && this.plugin.settings.fileLayouts && this.filePath) {
       const saved = this.plugin.settings.fileLayouts[this.filePath];
       if (saved) {
-        if (saved.theme) this.theme = saved.theme;
-        if (saved.viewMode) this.viewMode = saved.viewMode;
-        if (saved.detailLevel) this.detailLevel = saved.detailLevel;
-        if (saved.connectorStyle) this.connectorStyle = saved.connectorStyle;
-        if (saved.isOrganicView !== undefined) this.isOrganicView = saved.isOrganicView;
-        if (saved.panX !== undefined) this.panX = saved.panX;
-        if (saved.panY !== undefined) this.panY = saved.panY;
-        if (saved.zoom !== undefined) this.zoom = saved.zoom;
-
-        if (saved.positions) {
-          for (const [id, pos] of Object.entries(saved.positions)) {
-            const raw = this.findRawNode(id);
-            if (raw) {
-              if (pos.x !== undefined) raw.customX = pos.x;
-              if (pos.y !== undefined) raw.customY = pos.y;
-              if (pos.customWidth) raw.customWidth = pos.customWidth;
-              if (pos.customHeight) raw.customHeight = pos.customHeight;
-              if (pos.layout) raw.layout = pos.layout;
-              if (pos.isOrganic !== undefined) raw.isOrganic = pos.isOrganic;
-              if (pos.edgeText) raw.edgeText = pos.edgeText;
-              if (pos.priority) raw.priority = pos.priority;
-              if (pos.customColor) raw.customColor = pos.customColor;
-            }
-          }
-        }
-        if (Array.isArray(saved.collapsed)) {
-          for (const id of saved.collapsed) {
-            const raw = this.findRawNode(id);
-            if (raw) raw.collapsed = true;
-          }
-        }
+        this.applySavedLayout(saved);
       }
     }
 
@@ -3437,7 +3837,7 @@ class MindmapCanvas {
       const fromNode = this.renderedNodes.find(n => n.id === p.fromId);
       const toNode = this.renderedNodes.find(n => n.id === p.toId);
       if (fromNode && toNode) {
-        const isRight = toNode.x >= fromNode.x;
+        const isRight = (toNode.x + toNode.width / 2) >= (fromNode.x + fromNode.width / 2);
         const x1 = isRight ? fromNode.x + fromNode.width : fromNode.x;
         const y1 = fromNode.y + (fromNode.height / 2);
         const x2 = isRight ? toNode.x : toNode.x + toNode.width;
@@ -3535,6 +3935,7 @@ class MindmapCanvas {
     const walk = (n, parentId = null) => {
       if (n.customX !== undefined || n.customY !== undefined || n.customWidth !== undefined || n.customHeight !== undefined || n.layout || n.priority || n.customColor) {
         positions[n.id] = {
+          text: n.text,
           x: Math.round(n.customX !== undefined ? n.customX : (n.x || 0)),
           y: Math.round(n.customY !== undefined ? n.customY : (n.y || 0)),
           customWidth: n.customWidth,
@@ -3547,9 +3948,11 @@ class MindmapCanvas {
         };
       }
       if (n.isCanvasAdded) {
+        const parentNode = parentId ? this.findRawNode(parentId) : null;
         addedNodes.push({
           id: n.id,
           parentId: parentId || 'root',
+          parentText: parentNode ? parentNode.text : '',
           text: n.text,
           depth: n.depth,
           type: n.type || 'keypoint',
@@ -3559,6 +3962,10 @@ class MindmapCanvas {
           customHeight: n.customHeight,
           customColor: n.customColor,
           priority: n.priority,
+          bodyText: n.bodyText || '',
+          pdfLink: n.pdfLink || null,
+          images: n.images || null,
+          tableData: n.tableData || null,
           isCanvasAdded: true
         });
       }
@@ -3671,6 +4078,57 @@ class MindmapCanvas {
     this.selectedNodeId = nodeId;
     this.render();
     this.updateHierarchyGlow(nodeId);
+  }
+
+    findRawNodeByText(text, node = this.rawRootNode) {
+    if (!text) return null;
+    const cleanTarget = text.trim().toLowerCase();
+    if ((node.text || '').trim().toLowerCase() === cleanTarget) return node;
+    if (node.children) {
+      for (const c of node.children) {
+        const found = this.findRawNodeByText(text, c);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  applySavedLayout(saved) {
+    if (!saved) return;
+    if (saved.theme) this.theme = saved.theme;
+    if (saved.viewMode) this.viewMode = saved.viewMode;
+    if (saved.detailLevel) this.detailLevel = saved.detailLevel;
+    if (saved.connectorStyle) this.connectorStyle = saved.connectorStyle;
+    if (saved.isOrganicView !== undefined) this.isOrganicView = saved.isOrganicView;
+    if (saved.panX !== undefined) this.panX = saved.panX;
+    if (saved.panY !== undefined) this.panY = saved.panY;
+    if (saved.zoom !== undefined) this.zoom = saved.zoom;
+
+    if (saved.positions) {
+      for (const [id, pos] of Object.entries(saved.positions)) {
+        let raw = this.findRawNode(id);
+        if (!raw && pos.text) {
+          raw = this.findRawNodeByText(pos.text);
+        }
+        if (raw) {
+          if (pos.x !== undefined) raw.customX = pos.x;
+          if (pos.y !== undefined) raw.customY = pos.y;
+          if (pos.customWidth) raw.customWidth = pos.customWidth;
+          if (pos.customHeight) raw.customHeight = pos.customHeight;
+          if (pos.layout) raw.layout = pos.layout;
+          if (pos.isOrganic !== undefined) raw.isOrganic = pos.isOrganic;
+          if (pos.edgeText) raw.edgeText = pos.edgeText;
+          if (pos.priority) raw.priority = pos.priority;
+          if (pos.customColor) raw.customColor = pos.customColor;
+        }
+      }
+    }
+    if (Array.isArray(saved.collapsed)) {
+      for (const id of saved.collapsed) {
+        const raw = this.findRawNode(id);
+        if (raw) raw.collapsed = true;
+      }
+    }
   }
 
   findRawNode(nodeId, node = this.rawRootNode) {
@@ -4340,8 +4798,9 @@ class CdsMindmapView extends ItemView {
   async reloadFromMarkdown() {
     if (!this.file || !this.canvas || this._isInternalSaving) return;
 
+    let saved = null;
     if (this.plugin && this.plugin.settings && this.plugin.settings.fileLayouts) {
-      const saved = this.plugin.settings.fileLayouts[this.file.path];
+      saved = this.plugin.settings.fileLayouts[this.file.path];
       if (saved) {
         CUSTOM_POSITIONS_CACHE.set(this.file.path + '_layout', saved);
         if (saved.positions) {
@@ -4355,6 +4814,9 @@ class CdsMindmapView extends ItemView {
 
     const prevSelectedId = this.canvas.selectedNodeId;
     this.canvas.rawRootNode = newRoot;
+    if (saved) {
+      this.canvas.applySavedLayout(saved);
+    }
     if (this.canvas.findRawNode(prevSelectedId)) {
       this.canvas.selectedNodeId = prevSelectedId;
     }

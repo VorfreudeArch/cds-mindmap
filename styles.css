@@ -1546,3 +1546,112 @@
   color: #bae6fd !important;
   border-top-color: rgba(56, 189, 248, 0.2) !important;
 }
+
+/* ================== v1.7.8 CARTIGLIO & LOGO SYSTEM ================== */
+.cds-mm-export-section {
+  background: rgba(30, 41, 59, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.cds-mm-export-section-title {
+  font-size: 0.76rem;
+  font-weight: 800;
+  color: #38bdf8;
+  letter-spacing: 0.8px;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+
+.cds-mm-dimension-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+  margin-bottom: 6px;
+}
+
+.cds-mm-dimension-input {
+  flex: 1;
+  background: #1e293b;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #f1f5f9;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.82rem;
+}
+
+.cds-mm-logo-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  margin-bottom: 6px;
+}
+
+.cds-mm-btn-secondary {
+  background: #334155;
+  color: #f8fafc;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cds-mm-btn-secondary:hover {
+  background: #475569;
+  border-color: #38bdf8;
+}
+
+.cds-mm-logo-preview-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  margin-bottom: 6px;
+}
+
+.cds-mm-logo-thumb {
+  max-width: 80px;
+  max-height: 48px;
+  object-fit: contain;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid #38bdf8;
+  border-radius: 4px;
+  padding: 2px;
+}
+
+.cds-mm-btn-danger {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.cds-mm-btn-danger:hover {
+  background: rgba(239, 68, 68, 0.4);
+}
+
+.cds-mm-export-btn-main {
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 0.95rem;
+  font-weight: 800;
+  margin-top: 8px;
+  margin-bottom: 12px;
+  background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%);
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(2, 132, 199, 0.4);
+}
+
+.cds-mm-export-btn-main:hover {
+  filter: brightness(1.1);
+  box-shadow: 0 6px 20px rgba(2, 132, 199, 0.6);
+}
