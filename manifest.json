@@ -1,9 +1,9 @@
 {
   "id": "cds-mindmap",
   "name": "CDS Mindmap",
-  "version": "1.8.4",
+  "version": "1.8.5",
   "minAppVersion": "1.4.0",
-  "description": "Mappe concettuali dinamiche e interattive (Bilateral, Radial & Top-Down), integrazione nativa Obsidian Canvas (.canvas) con sincronizzazione real-time, layout compatto ad alta densità stampabile A0-A6 con coordinate normalizzate e zero sovrapposizioni.",
+  "description": "Mappe concettuali dinamiche e interattive con layout orizzontale compatto, bilanciamento simmetrico anti-vuoti, espansione card fino a 460px, integrazione Obsidian Canvas nativa con testo permanente a qualunque zoom.",
   "author": "CDS Team",
   "authorUrl": "https://github.com/cds-mindmap",
   "isDesktopOnly": false

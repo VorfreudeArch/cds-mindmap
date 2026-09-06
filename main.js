@@ -781,13 +781,27 @@ class MindmapEngine {
     const cleanText = text.replace(/\[\[.*?\]\]/g, 'Link').replace(/\*\*|==|\*|`/g, '');
     const rawLines = cleanText.split('\n');
     const maxLineLen = rawLines.reduce((max, l) => Math.max(max, l.length), 0);
+    const totalLen = cleanText.length;
 
-    // Dimensionamento orizzontale compatto ed ergonomico
-    let w = Math.max(180, Math.min(360, maxLineLen * 9.2 + 48));
+    // Dimensionamento orizzontale ottimizzato (v1.8.5): espansione orizzontale fino a 460px
+    // Evita le torri verticali chilometriche e distribuisce i testi ampi in schede panoramiche
+    let w = 240;
+    if (node.isRoot) {
+      w = Math.max(260, Math.min(480, maxLineLen * 9.2 + 50));
+    } else if (node.layout === 'table') {
+      w = 480;
+    } else if (totalLen > 250) {
+      w = 440;
+    } else if (totalLen > 120) {
+      w = 360;
+    } else if (totalLen > 50) {
+      w = 280;
+    } else {
+      w = Math.max(180, Math.min(260, maxLineLen * 8.6 + 38));
+    }
 
-    // Stima accurata di word-wrapping del titolo nel DOM con font a 13-14px
-    const printableWidth = Math.max(140, w - 40);
-    const charsPerLine = Math.max(16, Math.floor(printableWidth / 7.8));
+    const printableWidth = Math.max(140, w - 36);
+    const charsPerLine = Math.max(18, Math.floor(printableWidth / 7.5));
 
     let wrappedLineCount = 0;
     for (const rl of rawLines) {
@@ -800,8 +814,13 @@ class MindmapEngine {
     }
     wrappedLineCount = Math.max(1, wrappedLineCount);
 
-    // Altezza base con padding e line-height (22px a riga + 28px padding/border) + 26px barra azioni nodo
-    let h = wrappedLineCount * 22 + 28 + 26;
+    // In modalità sintesi / keypoints, limita l'altezza visiva a max 5 righe per evitare lo sviluppo a grattacielo
+    if (detailLevel === 'keypoints' && !node.isExpanded && wrappedLineCount > 5) {
+      wrappedLineCount = 5;
+    }
+
+    // Line-height a 19px compatto
+    let h = wrappedLineCount * 19 + 26 + (node.depth <= 1 ? 22 : 14);
 
     if (node.images && node.images.length) {
       w = Math.max(w, 280);
@@ -809,25 +828,15 @@ class MindmapEngine {
     }
 
     if (node.layout === 'table') {
-      w = Math.max(w, 460);
       const rowCount = (node.tableData && node.tableData.rows) ? node.tableData.rows.length : (node.children ? node.children.length : 1);
-      h = Math.max(h, 110 + rowCount * 36);
+      h = Math.max(80, 80 + rowCount * 28);
     } else {
       const hasFullText = (detailLevel === 'full' || node.isExpanded) && node.bodyText && node.bodyText.trim();
       if (hasFullText) {
-        // Ottimizzazione proporzionata della larghezza del nodo (v1.8.0):
-        // Nodi con testi corposi si espandono orizzontalmente fino a 500-520px
-        // per evitare fastidiose "torri verticali" che allungano a dismisura la mappa
         const bodyLen = node.bodyText.length;
-        if (bodyLen > 700) {
-          w = Math.max(w, 500);
-        } else if (bodyLen > 350) {
-          w = Math.max(w, 420);
-        } else if (bodyLen > 120) {
-          w = Math.max(w, 340);
-        } else {
-          w = Math.max(w, 280);
-        }
+        if (bodyLen > 700) w = Math.max(w, 500);
+        else if (bodyLen > 350) w = Math.max(w, 420);
+        else if (bodyLen > 120) w = Math.max(w, 340);
 
         const bodyPrintableW = Math.max(160, w - 32);
         const bodyCharsPerLine = Math.max(22, Math.floor(bodyPrintableW / 6.6));
@@ -836,33 +845,26 @@ class MindmapEngine {
         const bodyParagraphs = node.bodyText.split('\n');
         for (const bp of bodyParagraphs) {
           const trimmed = bp.trim();
-          if (!trimmed) {
-            bodyWrappedLines += 0.5;
-          } else {
-            bodyWrappedLines += Math.max(1, Math.ceil(trimmed.length / bodyCharsPerLine));
-          }
+          if (!trimmed) bodyWrappedLines += 0.5;
+          else bodyWrappedLines += Math.max(1, Math.ceil(trimmed.length / bodyCharsPerLine));
         }
-        // Line-height a 18px per il testo del corpo + 16px di separatore e padding
-        const bodyHeight = Math.round(bodyWrappedLines * 18 + 16);
+        const bodyHeight = Math.round(bodyWrappedLines * 17 + 14);
         h += bodyHeight;
       }
 
       if (node.pdfLink) {
-        h += 26;
+        h += 24;
         w = Math.max(w, 210);
       }
     }
 
     // Titolo Centrale Root
     if (node.isRoot) {
-      w = Math.max(260, Math.min(520, maxLineLen * 11 + 80));
-      const rootCharsPerLine = Math.max(20, Math.floor((w - 50) / 10));
-      const rootWrapped = Math.max(1, Math.ceil(cleanText.length / rootCharsPerLine));
-      h = Math.max(68, rootWrapped * 30 + 36);
+      w = Math.max(260, Math.min(480, maxLineLen * 9.2 + 50));
+      h = Math.max(68, h);
     }
 
     node.width = node.customWidth ? Math.max(80, node.customWidth) : w;
-    // Se c'è testo completo, l'altezza calcolata deve vincere su eventuali vecchi customHeight troppo piccoli
     node.height = node.customHeight ? Math.max(node.customHeight, h) : h;
 
     if (node.children && node.children.length && node.layout !== 'table' && !node.collapsed) {
@@ -874,7 +876,7 @@ class MindmapEngine {
     return { width: node.width, height: node.height };
   }
 
-  // Helper diramazione a ventaglio su più colonne (v1.8.0)
+  // Helper diramazione a ventaglio su più colonne (v1.8.5)
   static canFanOut(children) {
     if (!children || children.length < 5) return false;
     // Disattiva il fanning se i figli possiedono ulteriori sottoalberi complessi per evitare incroci di linee e sovrapposizioni
@@ -883,8 +885,8 @@ class MindmapEngine {
     return true;
   }
 
-  static computeSubtreeHeight(node, verticalGap = 22, horizontalGap = 75) {
-    const selfH = (node.height || 54);
+  static computeSubtreeHeight(node, verticalGap = 12, horizontalGap = 45) {
+    const selfH = (node.height || 44);
     if (!node.children || !node.children.length || node.layout === 'table' || node.collapsed) {
       node.subtreeHeight = selfH + verticalGap;
       node.subtreeWidth = node.width || 200;
@@ -892,9 +894,9 @@ class MindmapEngine {
       return node.subtreeHeight;
     }
 
-    // Diramazione intelligente su 2 o 3 colonne se ci sono 5 o più figli (es. flashcard o elenchi lunghi)
+    // Fanning orizzontale a 2 o 3 colonne per elenchi terminali (es. flashcard o liste punti senza sotto-alberi profondi)
     if (MindmapEngine.canFanOut(node.children)) {
-      const numCols = node.children.length >= 8 ? 3 : 2;
+      const numCols = node.children.length >= 9 ? 3 : 2;
       const itemsPerCol = Math.ceil(node.children.length / numCols);
       let maxColH = 0;
       let totalClusterW = 0;
@@ -907,12 +909,12 @@ class MindmapEngine {
           if (idx < node.children.length) {
             const ch = node.children[idx];
             MindmapEngine.computeSubtreeHeight(ch, verticalGap, horizontalGap);
-            colH += (ch.subtreeHeight || ch.height || 50);
+            colH += (ch.subtreeHeight || ch.height || 40);
             maxW = Math.max(maxW, ch.subtreeWidth || ch.width || 200);
           }
         }
         maxColH = Math.max(maxColH, colH);
-        totalClusterW += maxW + (c > 0 ? 35 : 0);
+        totalClusterW += maxW + (c > 0 ? horizontalGap : 0);
       }
       node.subtreeHeight = Math.max(selfH + verticalGap, maxColH);
       node.subtreeWidth = (node.width || 200) + horizontalGap + totalClusterW;
@@ -920,21 +922,20 @@ class MindmapEngine {
       return node.subtreeHeight;
     }
 
-    let sum = 0;
+    let totalChildrenH = 0;
     let maxChildW = 0;
     for (const child of node.children) {
-      sum += MindmapEngine.computeSubtreeHeight(child, verticalGap, horizontalGap);
+      const chH = MindmapEngine.computeSubtreeHeight(child, verticalGap, horizontalGap);
+      totalChildrenH += chH;
       maxChildW = Math.max(maxChildW, child.subtreeWidth || child.width || 200);
     }
-    node.subtreeHeight = Math.max(selfH + verticalGap, sum);
+
+    node.subtreeHeight = Math.max(selfH + verticalGap, totalChildrenH);
     node.subtreeWidth = (node.width || 200) + horizontalGap + maxChildW;
     node.fannedCols = 1;
     return node.subtreeHeight;
   }
 
-
-  // ==========================================================================
-  // LAYOUT 1: RADIALE 360° AD ANGOLI PROPORZIONALI (DISTANZE AMPIE E ANTI-COLLISIONE)
   static computeRadialLayout(rootNode, options = {}) {
     const detailLevel = options.detailLevel || 'keypoints';
     const horizontalGap = options.horizontalGap || 135;
@@ -1017,10 +1018,9 @@ class MindmapEngine {
   // LAYOUT 2: BILATERALE AD AMPIA SPAZIATURA, BILANCIAMENTO GREEDY E DIRAMAZIONE ORIZZONTALE (v1.8.0)
   // ==========================================================================
   static computeBilateralLayout(rootNode, options = {}) {
-    // Interspazi compatti ad alta densità per massimizzare la leggibilità ed evitare dispersioni
-    const horizontalGap = options.horizontalGap || 55;
-    const verticalGap = options.verticalGap || 16;
-    const chapterGap = options.chapterGap || 24;
+    const horizontalGap = options.horizontalGap || 45;
+    const verticalGap = options.verticalGap || 12;
+    const chapterGap = options.chapterGap || 16;
     const connectorStyle = options.connectorStyle || 'curved';
     const detailLevel = options.detailLevel || 'keypoints';
 
@@ -1031,7 +1031,7 @@ class MindmapEngine {
     const rightChildren = [];
     const leftChildren = [];
 
-    // Bilanciamento greedy rami destro e sinistro
+    // Bilanciamento Bilaterale Sincronizzato
     const unassigned = [];
     children.forEach(c => {
       if (c.manualSide === 'left') leftChildren.push(c);
@@ -1054,9 +1054,9 @@ class MindmapEngine {
       }
     }
 
-    // Coordinate iniziali provvisorie (verranno normalizzate con shift globale a fine calcolo)
+    // Coordinate iniziali radice
     rootNode.x = 1200;
-    rootNode.y = Math.max(800, Math.max(totalRightH, totalLeftH) / 2);
+    rootNode.y = Math.max(500, Math.max(totalRightH, totalLeftH) / 2);
     rootNode.color = '#38bdf8';
     rootNode.direction = 'center';
 
@@ -1075,7 +1075,7 @@ class MindmapEngine {
         chap.y = chap.customY;
       } else {
         chap.x = rootNode.x + rootNode.width + horizontalGap;
-        chap.y = curRightY + (chap.subtreeHeight / 2) - (chap.height / 2);
+        chap.y = Math.round(curRightY + (chap.subtreeHeight / 2) - (chap.height / 2));
 
         if (idx > 0) {
           const prevChap = rightChildren[idx - 1];
@@ -1101,7 +1101,7 @@ class MindmapEngine {
         chap.y = chap.customY;
       } else {
         chap.x = rootNode.x - chap.width - horizontalGap;
-        chap.y = curLeftY + (chap.subtreeHeight / 2) - (chap.height / 2);
+        chap.y = Math.round(curLeftY + (chap.subtreeHeight / 2) - (chap.height / 2));
 
         if (idx > 0) {
           const prevChap = leftChildren[idx - 1];
@@ -1115,7 +1115,7 @@ class MindmapEngine {
       curLeftY = Math.max(curLeftY + chap.subtreeHeight + chapterGap, chap.y + chap.height + chapterGap);
     });
 
-    MindmapEngine.resolveCollisions(renderedNodes, 30, 20);
+    MindmapEngine.resolveCollisions(renderedNodes, 25, 14);
 
     // =========================================================================
     // NORMALIZZAZIONE ASSOLUTA COORDINATE (ZERO NEGATIVI & MARGINE COSTANTE 60px)
@@ -1169,9 +1169,6 @@ class MindmapEngine {
     return { nodes: renderedNodes, paths: branchPaths, root: rootNode };
   }
 
-  // ==========================================================================
-  // LAYOUT 3: DESTRA AD ALBERO CON DIRAMAZIONE ORIZZONTALE (v1.8.0)
-  // ==========================================================================
   static computeRightLayout(rootNode, options = {}) {
     const horizontalGap = options.horizontalGap || 75;
     const verticalGap = options.verticalGap || 22;
@@ -5788,7 +5785,7 @@ class CdsMindmapView extends ItemView {
 module.exports = class CdsMindmapPlugin extends Plugin {
   async onload() {
     this.settings = Object.assign({ fileLayouts: {} }, await this.loadData());
-    console.log('Loading CDS Mindmap Suite v1.8.4 (Compact Printable Layout, Clean Connections & Native Canvas)');
+    console.log('Loading CDS Mindmap Suite v1.8.5 (Horizontal Compact Layout, Zero Center Void & Native Canvas Stability) (Compact Printable Layout, Clean Connections & Native Canvas)');
 
     this.registerView(VIEW_TYPE_MINDMAP, (leaf) => new CdsMindmapView(leaf, this));
 
