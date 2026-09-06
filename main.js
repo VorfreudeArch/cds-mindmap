@@ -783,7 +783,7 @@ class MindmapEngine {
     const maxLineLen = rawLines.reduce((max, l) => Math.max(max, l.length), 0);
     const totalLen = cleanText.length;
 
-    // Dimensionamento orizzontale ottimizzato (v1.8.5): espansione orizzontale fino a 460px
+    // Dimensionamento orizzontale ottimizzato (v1.8.6): espansione orizzontale fino a 460px
     // Evita le torri verticali chilometriche e distribuisce i testi ampi in schede panoramiche
     let w = 240;
     if (node.isRoot) {
@@ -876,12 +876,18 @@ class MindmapEngine {
     return { width: node.width, height: node.height };
   }
 
-  // Helper diramazione a ventaglio su più colonne (v1.8.5)
+  // Helper diramazione a ventaglio su più colonne (v1.8.6)
   static canFanOut(children) {
-    if (!children || children.length < 5) return false;
-    // Disattiva il fanning se i figli possiedono ulteriori sottoalberi complessi per evitare incroci di linee e sovrapposizioni
-    const hasDeepChildren = children.some(c => c.children && c.children.length > 0 && c.layout !== 'table');
-    if (hasDeepChildren) return false;
+    if (!children || children.length < 4) return false;
+    // Non fannare se ci sono tabelle per mantenere l'integrità tabellare
+    if (children.some(c => c.layout === 'table')) return false;
+    // Consenti fanning se la profondità dei sotto-alberi è ragionevole (<= 2 livelli di discendenti)
+    const hasTooDeepDescendants = children.some(c => 
+      c.children && c.children.some(gc => 
+        gc.children && gc.children.some(ggc => ggc.children && ggc.children.length > 0)
+      )
+    );
+    if (hasTooDeepDescendants) return false;
     return true;
   }
 
@@ -1250,7 +1256,7 @@ class MindmapEngine {
           const child = parent.children[idx];
           child.color = color;
           child.direction = direction;
-          maxColW = Math.max(maxColW, child.width || 200);
+          maxColW = Math.max(maxColW, child.subtreeWidth || child.width || 200);
 
           if (child.customX !== undefined && child.customY !== undefined) {
             child.x = child.customX;
@@ -1279,14 +1285,14 @@ class MindmapEngine {
             edgeText: child.edgeText || ''
           });
 
-          colY += (child.height || 50) + verticalGap;
+          colY += (child.subtreeHeight || (child.height || 50) + verticalGap);
 
           if (child.children && child.children.length && child.layout !== 'table') {
             MindmapEngine.positionSubChildren(child, color, direction, horizontalGap, renderedNodes, branchPaths, verticalGap, connectorStyle);
           }
         }
 
-        curColOffset += maxColW + 35;
+        curColOffset += maxColW + horizontalGap;
       }
       return;
     }
@@ -3295,11 +3301,11 @@ class MindmapCanvas {
     const activeTree = MindmapEngine.filterTreeByDetail(this.rawRootNode, this.detailLevel);
 
     // Calcolo spaziature dinamiche in base alla densità selezionata (v1.8.0)
-    let hGap = 75, vGap = 22, cGap = 42;
+    let hGap = 45, vGap = 12, cGap = 16;
     if (this.spacingDensity === 'ultra-compact') {
-      hGap = 55; vGap = 16; cGap = 28;
+      hGap = 35; vGap = 8; cGap = 10;
     } else if (this.spacingDensity === 'standard') {
-      hGap = 125; vGap = 36; cGap = 55;
+      hGap = 65; vGap = 18; cGap = 24;
     }
 
     let layout;
@@ -5785,7 +5791,7 @@ class CdsMindmapView extends ItemView {
 module.exports = class CdsMindmapPlugin extends Plugin {
   async onload() {
     this.settings = Object.assign({ fileLayouts: {} }, await this.loadData());
-    console.log('Loading CDS Mindmap Suite v1.8.5 (Horizontal Compact Layout, Zero Center Void & Native Canvas Stability) (Compact Printable Layout, Clean Connections & Native Canvas)');
+    console.log('Loading CDS Mindmap Suite v1.8.6 (Horizontal Compact Layout, Zero Center Void & Native Canvas Stability) (Compact Printable Layout, Clean Connections & Native Canvas)');
 
     this.registerView(VIEW_TYPE_MINDMAP, (leaf) => new CdsMindmapView(leaf, this));
 
@@ -5799,6 +5805,26 @@ module.exports = class CdsMindmapPlugin extends Plugin {
             v.reloadFromMarkdown();
           }
         }
+      })
+    );
+
+    // Mantenimento permanente del testo nelle schede Canvas a qualsiasi livello di zoom
+    this.registerEvent(
+      this.app.workspace.on('layout-change', () => {
+        try {
+          const leaves = this.app.workspace.getLeavesOfType('canvas');
+          for (const leaf of leaves) {
+            const canvas = leaf.view && leaf.view.canvas;
+            if (canvas && canvas.nodes) {
+              canvas.nodes.forEach((n) => {
+                n.alwaysKeepLoaded = true;
+                if (!n.isContentMounted && typeof n.mountContent === 'function') {
+                  n.mountContent();
+                }
+              });
+            }
+          }
+        } catch (e) {}
       })
     );
 
