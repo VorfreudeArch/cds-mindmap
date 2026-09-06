@@ -499,22 +499,16 @@ class MindmapEngine {
   static exportToObsidianCanvas(rootNode, options = {}) {
     const detailLevel = options.detailLevel || 'full';
     const viewMode = options.viewMode || 'bilateral';
-    const spacingDensity = options.spacingDensity || 'compact';
     const customGroups = options.groups || [];
 
     const filteredTree = MindmapEngine.filterTreeByDetail(rootNode, detailLevel);
 
-    let hGap = 130, vGap = 36;
-    if (spacingDensity === 'ultra-compact') {
-      hGap = 90; vGap = 24;
-    } else if (spacingDensity === 'standard') {
-      hGap = 160; vGap = 50;
-    }
-
+    // Layout compatto ed ergonomico per Obsidian Canvas
     const layoutOpts = {
       detailLevel,
-      horizontalGap: hGap,
-      verticalGap: vGap
+      horizontalGap: 60,
+      verticalGap: 18,
+      chapterGap: 26
     };
 
     let layout;
@@ -529,14 +523,6 @@ class MindmapEngine {
     const canvasNodes = [];
     const canvasEdges = [];
 
-    // Mappa nodi esistenti per preservare coordinate e dimensioni personalizzate dall'utente
-    const existingNodesMap = new Map();
-    if (options.existingCanvasData && Array.isArray(options.existingCanvasData.nodes)) {
-      options.existingCanvasData.nodes.forEach(en => {
-        if (en && en.id) existingNodesMap.set(en.id, en);
-      });
-    }
-
     // Colori Obsidian Canvas nativi (1-6)
     // 1: Rosso/Corallo, 2: Arancio, 3: Giallo, 4: Verde, 5: Blu/Azzurro, 6: Viola
     const depthColors = ['5', '1', '2', '4', '6', '3'];
@@ -547,7 +533,7 @@ class MindmapEngine {
       let nodeText = '';
       if (n.depth === 0) {
         nodeText = `# ${n.text}`;
-      } else if (n.depth === 1) {
+      } else if (n.depth === 1 || n.depth === 2) {
         nodeText = `### ${n.text}`;
       } else {
         nodeText = `**${n.text}**`;
@@ -557,31 +543,18 @@ class MindmapEngine {
         nodeText += '\n\n' + n.bodyText.trim();
       }
 
-      let w = Math.round(Math.max(n.width, 240));
-      let h = Math.round(Math.max(n.height, 80));
-      let posX = Math.round(n.x);
-      let posY = Math.round(n.y);
-      let nodeColor = color;
-
-      // Preservazione intelligente coordinate utente da Canvas
-      const existing = existingNodesMap.get(n.id);
-      if (existing) {
-        if (typeof existing.x === 'number') posX = existing.x;
-        if (typeof existing.y === 'number') posY = existing.y;
-        if (typeof existing.width === 'number') w = existing.width;
-        if (typeof existing.height === 'number') h = existing.height;
-        if (existing.color) nodeColor = existing.color;
-      }
+      const w = Math.round(Math.max(n.width || 220, 220));
+      const h = Math.round(Math.max(n.height || 60, 60));
 
       canvasNodes.push({
         id: n.id,
         type: 'text',
         text: nodeText,
-        x: posX,
-        y: posY,
+        x: Math.round(n.x),
+        y: Math.round(n.y),
         width: w,
         height: h,
-        color: nodeColor
+        color
       });
     });
 
@@ -599,7 +572,7 @@ class MindmapEngine {
           maxY = Math.max(maxY, m.y + m.height);
         }
 
-        const pad = 30;
+        const pad = 25;
         canvasNodes.push({
           id: grp.id,
           type: 'group',
@@ -613,7 +586,7 @@ class MindmapEngine {
       });
     }
 
-    // Edges (collegamenti)
+    // Edges (collegamenti puliti conformi al formato nativo Obsidian Canvas)
     layout.paths.forEach((p, idx) => {
       const fromN = layout.nodes.find(n => n.id === p.fromId);
       const toN = layout.nodes.find(n => n.id === p.toId);
@@ -632,136 +605,11 @@ class MindmapEngine {
       });
     });
 
+    // File .canvas 100% conforme alle specifiche native di Obsidian (senza campi non standard)
     return {
-      metadata: {
-        sourceFile: options.sourceFilePath || '',
-        syncedBy: 'cds-mindmap',
-        lastSync: Date.now()
-      },
       nodes: canvasNodes,
       edges: canvasEdges
     };
-  }
-
-  // ==========================================================================
-  // METODO v1.8.2: PARSER BIDIREZIONALE OBSIDIAN CANVAS (.canvas) -> MARKDOWN
-  // ==========================================================================
-  static canvasToMarkdown(canvasData) {
-    if (!canvasData || !Array.isArray(canvasData.nodes) || canvasData.nodes.length === 0) {
-      return '';
-    }
-
-    const textNodes = canvasData.nodes.filter(n => n.type === 'text');
-    if (textNodes.length === 0) return '';
-
-    const edges = Array.isArray(canvasData.edges) ? canvasData.edges : [];
-    const nodesById = new Map();
-    textNodes.forEach(n => nodesById.set(n.id, n));
-
-    const outgoing = new Map();
-    const incoming = new Map();
-
-    edges.forEach(e => {
-      if (!outgoing.has(e.fromNode)) outgoing.set(e.fromNode, []);
-      outgoing.get(e.fromNode).push(e.toNode);
-
-      if (!incoming.has(e.toNode)) incoming.set(e.toNode, []);
-      incoming.get(e.toNode).push(e.fromNode);
-    });
-
-    // Nodi radice (senza archi in ingresso)
-    let rootNodes = textNodes.filter(n => !incoming.has(n.id) || incoming.get(n.id).length === 0);
-    if (rootNodes.length === 0) {
-      rootNodes = [textNodes[0]];
-    }
-
-    // Ordina le radici per coordinata Y
-    rootNodes.sort((a, b) => (a.y || 0) - (b.y || 0));
-
-    const visited = new Set();
-    const lines = [];
-
-    function traverse(nodeId, depth) {
-      if (visited.has(nodeId)) return;
-      visited.add(nodeId);
-
-      const node = nodesById.get(nodeId);
-      if (!node) return;
-
-      const rawText = (node.text || '').trim();
-      if (rawText) {
-        if (depth === 0) {
-          let cleanTitle = rawText.replace(/^#+\s*/, '').trim();
-          if (cleanTitle.startsWith('**') && cleanTitle.endsWith('**')) {
-            cleanTitle = cleanTitle.slice(2, -2).trim();
-          }
-          lines.push(`# ${cleanTitle}`);
-          lines.push('');
-        } else if (depth === 1) {
-          const parts = rawText.split('\n\n');
-          let header = parts[0].replace(/^#+\s*/, '').trim();
-          if (header.startsWith('**') && header.endsWith('**')) {
-            header = header.slice(2, -2).trim();
-          }
-          const body = parts.slice(1).join('\n\n');
-          lines.push(`## ${header}`);
-          if (body) {
-            lines.push(body);
-          }
-          lines.push('');
-        } else if (depth === 2) {
-          const parts = rawText.split('\n\n');
-          let header = parts[0].replace(/^#+\s*/, '').trim();
-          if (header.startsWith('**') && header.endsWith('**')) {
-            header = header.slice(2, -2).trim();
-          }
-          const body = parts.slice(1).join('\n\n');
-          lines.push(`### ${header}`);
-          if (body) {
-            lines.push(body);
-          }
-          lines.push('');
-        } else {
-          const indent = '  '.repeat(Math.max(0, depth - 3));
-          const parts = rawText.split('\n\n');
-          const firstLine = parts[0];
-          const rest = parts.slice(1).join('\n\n');
-          lines.push(`${indent}- ${firstLine}`);
-          if (rest) {
-            const restLines = rest.split('\n');
-            restLines.forEach(rl => lines.push(`${indent}  ${rl}`));
-          }
-        }
-      }
-
-      // Nodi figli ordinati per Y crescente
-      const childIds = outgoing.get(nodeId) || [];
-      const childNodes = childIds.map(id => nodesById.get(id)).filter(Boolean);
-      childNodes.sort((a, b) => (a.y || 0) - (b.y || 0));
-
-      for (const child of childNodes) {
-        traverse(child.id, depth + 1);
-      }
-    }
-
-    for (const root of rootNodes) {
-      traverse(root.id, 0);
-    }
-
-    // Eventuali nodi orfani non connessi
-    const orphans = textNodes.filter(n => !visited.has(n.id));
-    if (orphans.length > 0) {
-      lines.push('');
-      lines.push('## Altri Concetti Collegati');
-      lines.push('');
-      orphans.sort((a, b) => (a.y || 0) - (b.y || 0));
-      for (const orphan of orphans) {
-        lines.push(`- ${orphan.text.trim()}`);
-      }
-      lines.push('');
-    }
-
-    return lines.join('\n');
   }
 
   static filterTreeByDetail(node, level = 'keypoints') {
@@ -1029,6 +877,9 @@ class MindmapEngine {
   // Helper diramazione a ventaglio su più colonne (v1.8.0)
   static canFanOut(children) {
     if (!children || children.length < 5) return false;
+    // Disattiva il fanning se i figli possiedono ulteriori sottoalberi complessi per evitare incroci di linee e sovrapposizioni
+    const hasDeepChildren = children.some(c => c.children && c.children.length > 0 && c.layout !== 'table');
+    if (hasDeepChildren) return false;
     return true;
   }
 
@@ -1166,8 +1017,10 @@ class MindmapEngine {
   // LAYOUT 2: BILATERALE AD AMPIA SPAZIATURA, BILANCIAMENTO GREEDY E DIRAMAZIONE ORIZZONTALE (v1.8.0)
   // ==========================================================================
   static computeBilateralLayout(rootNode, options = {}) {
-    const horizontalGap = options.horizontalGap || 75;
-    const verticalGap = options.verticalGap || 22;
+    // Interspazi compatti ad alta densità per massimizzare la leggibilità ed evitare dispersioni
+    const horizontalGap = options.horizontalGap || 55;
+    const verticalGap = options.verticalGap || 16;
+    const chapterGap = options.chapterGap || 24;
     const connectorStyle = options.connectorStyle || 'curved';
     const detailLevel = options.detailLevel || 'keypoints';
 
@@ -1178,8 +1031,7 @@ class MindmapEngine {
     const rightChildren = [];
     const leftChildren = [];
 
-    // Algoritmo Greedy Bin-Packing (v1.8.0): bilancia l'altezza totale dei rami tra Sinistra e Destra
-    // per evitare mappe sbilanciate e sviluppi verticali chilometrici
+    // Bilanciamento greedy rami destro e sinistro
     const unassigned = [];
     children.forEach(c => {
       if (c.manualSide === 'left') leftChildren.push(c);
@@ -1189,7 +1041,6 @@ class MindmapEngine {
 
     unassigned.sort((a, b) => (b.subtreeHeight || 0) - (a.subtreeHeight || 0));
 
-    const chapterGap = options.chapterGap || 42;
     let totalRightH = rightChildren.reduce((sum, c) => sum + (c.subtreeHeight || 0) + chapterGap, 0);
     let totalLeftH = leftChildren.reduce((sum, c) => sum + (c.subtreeHeight || 0) + chapterGap, 0);
 
@@ -1203,8 +1054,9 @@ class MindmapEngine {
       }
     }
 
-    rootNode.x = 2600;
-    rootNode.y = Math.max(1200, Math.max(totalRightH, totalLeftH) / 2);
+    // Coordinate iniziali provvisorie (verranno normalizzate con shift globale a fine calcolo)
+    rootNode.x = 1200;
+    rootNode.y = Math.max(800, Math.max(totalRightH, totalLeftH) / 2);
     rootNode.color = '#38bdf8';
     rootNode.direction = 'center';
 
@@ -1233,15 +1085,6 @@ class MindmapEngine {
       }
 
       renderedNodes.push(chap);
-
-      branchPaths.push({
-        d: MindmapEngine.generateBranchPath(rootNode.x + rootNode.width, rootNode.y + (rootNode.height / 2), chap.x, chap.y + (chap.height / 2), true, connectorStyle),
-        color,
-        fromId: rootNode.id,
-        toId: chap.id,
-        edgeText: chap.edgeText || ''
-      });
-
       MindmapEngine.positionSubChildren(chap, color, 'right', horizontalGap, renderedNodes, branchPaths, verticalGap, connectorStyle);
       curRightY = Math.max(curRightY + chap.subtreeHeight + chapterGap, chap.y + chap.height + chapterGap);
     });
@@ -1268,20 +1111,61 @@ class MindmapEngine {
       }
 
       renderedNodes.push(chap);
-
-      branchPaths.push({
-        d: MindmapEngine.generateBranchPath(rootNode.x, rootNode.y + (rootNode.height / 2), chap.x + chap.width, chap.y + (chap.height / 2), false, connectorStyle),
-        color,
-        fromId: rootNode.id,
-        toId: chap.id,
-        edgeText: chap.edgeText || ''
-      });
-
       MindmapEngine.positionSubChildren(chap, color, 'left', horizontalGap, renderedNodes, branchPaths, verticalGap, connectorStyle);
       curLeftY = Math.max(curLeftY + chap.subtreeHeight + chapterGap, chap.y + chap.height + chapterGap);
     });
 
-    MindmapEngine.resolveCollisions(renderedNodes, 45, 34);
+    MindmapEngine.resolveCollisions(renderedNodes, 30, 20);
+
+    // =========================================================================
+    // NORMALIZZAZIONE ASSOLUTA COORDINATE (ZERO NEGATIVI & MARGINE COSTANTE 60px)
+    // =========================================================================
+    let minX = Infinity, minY = Infinity;
+    for (const n of renderedNodes) {
+      if (n.x < minX) minX = n.x;
+      if (n.y < minY) minY = n.y;
+    }
+
+    const marginSafety = 60;
+    const shiftX = marginSafety - minX;
+    const shiftY = marginSafety - minY;
+
+    for (const n of renderedNodes) {
+      n.x = Math.round(n.x + shiftX);
+      n.y = Math.round(n.y + shiftY);
+    }
+
+    // =========================================================================
+    // RIGENERAZIONE ACCURATA DI TUTTI I RAMI (ZERO INCROCI, ZERO DISCONNESSIONI)
+    // =========================================================================
+    branchPaths.length = 0;
+    const nodeMap = new Map();
+    for (const n of renderedNodes) nodeMap.set(n.id, n);
+
+    const connectNodeAndChildren = (pNode) => {
+      if (!pNode.children || !pNode.children.length || pNode.collapsed || pNode.layout === 'table') return;
+      for (const ch of pNode.children) {
+        if (!nodeMap.has(ch.id)) continue;
+        const isRight = (ch.x + ch.width / 2) >= (pNode.x + pNode.width / 2);
+        const startX = isRight ? pNode.x + pNode.width : pNode.x;
+        const startYPoint = pNode.y + (pNode.height / 2);
+        const targetX = isRight ? ch.x : ch.x + ch.width;
+        const targetYPoint = ch.y + (ch.height / 2);
+        const branchColor = ch.color || pNode.color || '#38bdf8';
+
+        branchPaths.push({
+          d: MindmapEngine.generateBranchPath(startX, startYPoint, targetX, targetYPoint, isRight, connectorStyle),
+          color: branchColor,
+          fromId: pNode.id,
+          toId: ch.id,
+          edgeText: ch.edgeText || ''
+        });
+
+        connectNodeAndChildren(ch);
+      }
+    };
+    connectNodeAndChildren(rootNode);
+
     return { nodes: renderedNodes, paths: branchPaths, root: rootNode };
   }
 
@@ -3760,10 +3644,14 @@ class MindmapCanvas {
       };
     }
 
-    this.svgLayer.setAttribute('width', `${maxX + 400}`);
-    this.svgLayer.setAttribute('height', `${maxY + 400}`);
-    this.stage.style.width = `${maxX + 400}px`;
-    this.stage.style.height = `${maxY + 400}px`;
+    const finalStageW = Math.max(maxX + 120, 1800);
+    const finalStageH = Math.max(maxY + 120, 1400);
+
+    this.svgLayer.setAttribute('width', `${finalStageW}`);
+    this.svgLayer.setAttribute('height', `${finalStageH}`);
+    this.svgLayer.setAttribute('viewBox', `0 0 ${finalStageW} ${finalStageH}`);
+    this.stage.style.width = `${finalStageW}px`;
+    this.stage.style.height = `${finalStageH}px`;
 
     // Render Overlay Foglio Stampa sul Canvas se attivo
     this.renderCanvasSheetOverlay();
@@ -4266,6 +4154,13 @@ class MindmapCanvas {
         return;
       }
 
+      const canvasData = MindmapEngine.exportToObsidianCanvas(this.rawRootNode, {
+        detailLevel: this.detailLevel,
+        viewMode: this.viewMode,
+        groups: this.groups,
+        spacingDensity: this.spacingDensity
+      });
+
       const baseName = (this.rawRootNode.text || 'Mappa_Concettuale').replace(/[/\\?%*:|"<>]/g, '_').trim();
       let canvasPath = '';
       if (this.filePath) {
@@ -4275,25 +4170,8 @@ class MindmapCanvas {
         canvasPath = `Mappe Concettuali/${baseName}.canvas`;
       }
 
-      const existingFile = this.app.vault.getAbstractFileByPath(canvasPath);
-      let existingCanvasData = null;
-      if (existingFile) {
-        try {
-          const raw = await this.app.vault.read(existingFile);
-          existingCanvasData = JSON.parse(raw);
-        } catch(e) {}
-      }
-
-      const canvasData = MindmapEngine.exportToObsidianCanvas(this.rawRootNode, {
-        detailLevel: this.detailLevel,
-        viewMode: this.viewMode,
-        groups: this.groups,
-        spacingDensity: this.spacingDensity,
-        existingCanvasData,
-        sourceFilePath: this.filePath || ''
-      });
-
       const jsonStr = JSON.stringify(canvasData, null, 2);
+      const existingFile = this.app.vault.getAbstractFileByPath(canvasPath);
 
       if (existingFile) {
         await this.app.vault.modify(existingFile, jsonStr);
@@ -4308,23 +4186,7 @@ class MindmapCanvas {
       }
 
       new Notice(`🗺️ Mappa esportata in Obsidian Canvas: ${canvasPath}`);
-      const leaf = await this.app.workspace.openLinkText(canvasPath, '', true);
-
-      // Risoluzione visibilità immediata (Zero Clic) sulla scheda aperta in multi-fase
-      setTimeout(() => {
-        const canvasLeaves = this.app.workspace.getLeavesOfType('canvas');
-        const targetLeaf = canvasLeaves.find(l => l.view && l.view.file && l.view.file.path === canvasPath) || this.app.workspace.activeLeaf;
-        if (targetLeaf && this.plugin && typeof this.plugin.enhanceCanvasLeaf === 'function') {
-          this.plugin.enhanceCanvasLeaf(targetLeaf);
-        }
-      }, 50);
-      setTimeout(() => {
-        const canvasLeaves = this.app.workspace.getLeavesOfType('canvas');
-        const targetLeaf = canvasLeaves.find(l => l.view && l.view.file && l.view.file.path === canvasPath) || this.app.workspace.activeLeaf;
-        if (targetLeaf && this.plugin && typeof this.plugin.enhanceCanvasLeaf === 'function') {
-          this.plugin.enhanceCanvasLeaf(targetLeaf);
-        }
-      }, 250);
+      await this.app.workspace.openLinkText(canvasPath, '', true);
     } catch(err) {
       console.error('[CDS Mindmap] Error opening in Obsidian Canvas:', err);
       new Notice(`⚠️ Errore apertura Canvas: ${err.message}`);
@@ -5925,61 +5787,23 @@ class CdsMindmapView extends ItemView {
 
 module.exports = class CdsMindmapPlugin extends Plugin {
   async onload() {
-    this.settings = Object.assign({ fileLayouts: {}, syncCanvasBidirectional: true }, await this.loadData());
-    this._syncLocks = new Set();
-    this._syncDebounceTimers = new Map();
-
-    console.log('Loading CDS Mindmap Suite v1.8.3 (Permanent Zero-Click Canvas Text Visibility & Prototype Patch)');
+    this.settings = Object.assign({ fileLayouts: {} }, await this.loadData());
+    console.log('Loading CDS Mindmap Suite v1.8.4 (Compact Printable Layout, Clean Connections & Native Canvas)');
 
     this.registerView(VIEW_TYPE_MINDMAP, (leaf) => new CdsMindmapView(leaf, this));
 
-    // Intercetta ViewRegistry per agganciare e patchare istantaneamente qualsiasi CanvasView all'atto della creazione
-    try {
-      if (this.app.viewRegistry && this.app.viewRegistry.viewByType) {
-        const origCanvasCreator = this.app.viewRegistry.viewByType['canvas'];
-        if (typeof origCanvasCreator === 'function' && !origCanvasCreator._cdsWrapped) {
-          const self = this;
-          const wrappedCreator = function(leaf) {
-            const view = origCanvasCreator(leaf);
-            if (view && view.canvas) {
-              self.patchCanvasPrototypes(view.canvas);
-            }
-            return view;
-          };
-          wrappedCreator._cdsWrapped = true;
-          this.app.viewRegistry.viewByType['canvas'] = wrappedCreator;
-        }
-      }
-    } catch(ve) {
-      console.warn('[CDS Mindmap] viewRegistry hook notice:', ve);
-    }
-
-    // Ascolto layout ed eventi leaf per garantire la visibilità del testo Canvas a qualsiasi zoom (Zero Clic)
-    this.registerEvent(
-      this.app.workspace.on('layout-change', () => this.enhanceAllCanvasViews())
-    );
-
-    this.registerEvent(
-      this.app.workspace.on('active-leaf-change', (leaf) => {
-        if (leaf && leaf.view && leaf.view.getViewType() === 'canvas') {
-          this.enhanceCanvasLeaf(leaf);
-        }
-      })
-    );
-
-    // Sincronizzazione automatica e bidirezionale tra note Markdown e Obsidian Canvas (.canvas)
     this.registerEvent(
       this.app.vault.on('modify', (file) => {
-        if (!(file instanceof TFile)) return;
-        this.handleFileModified(file);
+        if (!(file instanceof TFile) || file.extension !== 'md') return;
+        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_MINDMAP);
+        for (const leaf of leaves) {
+          const v = leaf.view;
+          if (v && v.file && v.file.path === file.path && !v._isInternalSaving) {
+            v.reloadFromMarkdown();
+          }
+        }
       })
     );
-
-    // Patch immediato su tutte le schede Canvas esistenti
-    this.enhanceAllCanvasViews();
-    setTimeout(() => this.enhanceAllCanvasViews(), 150);
-    setTimeout(() => this.enhanceAllCanvasViews(), 500);
-    setTimeout(() => this.enhanceAllCanvasViews(), 1200);
 
     this.addRibbonIcon('git-fork', 'CDS Mindmap: Apri come Mappa Concettuale', () => {
       this.openActiveNoteAsMindmap();
@@ -6008,15 +5832,6 @@ module.exports = class CdsMindmapPlugin extends Plugin {
           return true;
         }
         return false;
-      }
-    });
-
-    this.addCommand({
-      id: 'force-canvas-zero-click-visibility',
-      name: 'Canvas: Forza visibilità immediata di tutti i testi (Zero Clic)',
-      callback: () => {
-        this.enhanceAllCanvasViews();
-        new Notice('✨ Visibilità testo Zero-Clic forzata su tutti i Canvas!');
       }
     });
 
@@ -6094,360 +5909,6 @@ module.exports = class CdsMindmapPlugin extends Plugin {
     }
   }
 
-  // ==========================================================================
-  // METODI v1.8.3: RISOLUZIONE VISIBILITÀ TESTO CANVAS ZERO-CLIC (PROTOTYPE PATCH)
-  // ==========================================================================
-  patchCanvasPrototypes(canvas) {
-    if (!canvas) return;
-    const self = this;
-
-    // 1. PATCH GLOBALE SUL PROTOTIPO DI CANVAS
-    const canvasProto = Object.getPrototypeOf(canvas);
-    if (canvasProto && !canvasProto._cdsCanvasPatched) {
-      canvasProto._cdsCanvasPatched = true;
-
-      // Getter zoomBreakpoint permanente: canvas.zoom > zoomBreakpoint SEMPRE VERO a qualunque zoom
-      try {
-        Object.defineProperty(canvasProto, 'zoomBreakpoint', {
-          get: () => -999999,
-          set: () => {},
-          configurable: true
-        });
-      } catch(e) {}
-
-      // Intercetta importData per montare i nodi istantaneamente al caricamento di qualsiasi file .canvas
-      const origImport = canvasProto.importData;
-      if (typeof origImport === 'function') {
-        canvasProto.importData = function(data, clear) {
-          const res = origImport.apply(this, arguments);
-          try {
-            if (this.nodes) {
-              this.nodes.forEach(n => {
-                n.alwaysKeepLoaded = true;
-                if (!n.isContentMounted && typeof n.mountContent === 'function') {
-                  n.mountContent();
-                }
-                self.patchNodePrototypeChain(n);
-              });
-            }
-          } catch(err) {
-            console.error('[CDS Mindmap] importData hook error:', err);
-          }
-          return res;
-        };
-      }
-
-      // Intercetta addNode per catturare QUALSIASI nodo creato o aggiunto dinamicamente
-      const origAddNode = canvasProto.addNode;
-      if (typeof origAddNode === 'function') {
-        canvasProto.addNode = function(node) {
-          const res = origAddNode.apply(this, arguments);
-          if (node) {
-            node.alwaysKeepLoaded = true;
-            if (!node.isContentMounted && typeof node.mountContent === 'function') {
-              node.mountContent();
-            }
-            self.patchNodePrototypeChain(node);
-          }
-          return res;
-        };
-      }
-
-      // Intercetta createTextNode
-      const origCreateText = canvasProto.createTextNode;
-      if (typeof origCreateText === 'function') {
-        canvasProto.createTextNode = function(...args) {
-          const node = origCreateText.apply(this, args);
-          if (node) {
-            node.alwaysKeepLoaded = true;
-            if (!node.isContentMounted && typeof node.mountContent === 'function') {
-              node.mountContent();
-            }
-            self.patchNodePrototypeChain(node);
-          }
-          return node;
-        };
-      }
-    }
-
-    // Anche sull'istanza specifica del canvas
-    try {
-      Object.defineProperty(canvas, 'zoomBreakpoint', {
-        get: () => -999999,
-        set: () => {},
-        configurable: true
-      });
-    } catch(e) {}
-
-    // Monta ed applica sui nodi già presenti in memoria
-    if (canvas.nodes) {
-      canvas.nodes.forEach(node => {
-        node.alwaysKeepLoaded = true;
-        if (!node.isContentMounted && typeof node.mountContent === 'function') {
-          node.mountContent();
-        }
-        this.patchNodePrototypeChain(node);
-      });
-    }
-  }
-
-  patchNodePrototypeChain(node) {
-    if (!node) return;
-    let curr = Object.getPrototypeOf(node);
-    while (curr && curr !== Object.prototype) {
-      if (curr._cdsPatched) {
-        curr = Object.getPrototypeOf(curr);
-        continue;
-      }
-      curr._cdsPatched = true;
-
-      // Neutralizza unmountContent: MAI smontare il contenuto o mostrare placeholder
-      if (typeof curr.unmountContent === 'function') {
-        curr.unmountContent = function() {
-          // Contenuto permanentemente preservato in DOM
-        };
-      }
-
-      // Overwrite updateBreakpoint: chiama SEMPRE mountContent anziché unmountContent
-      if (typeof curr.updateBreakpoint === 'function') {
-        curr.updateBreakpoint = function(t) {
-          this.alwaysKeepLoaded = true;
-          if (typeof this.mountContent === 'function' && !this.isContentMounted) {
-            this.mountContent();
-          }
-        };
-      }
-
-      // Initialize: garantisce alwaysKeepLoaded = true e monta subito
-      if (typeof curr.initialize === 'function') {
-        const origInit = curr.initialize;
-        curr.initialize = function() {
-          this.alwaysKeepLoaded = true;
-          origInit.apply(this, arguments);
-          if (typeof this.mountContent === 'function' && !this.isContentMounted) {
-            this.mountContent();
-          }
-        };
-      }
-
-      // Render: garantisce che il child sia istanziato e montato
-      if (typeof curr.render === 'function') {
-        const origRender = curr.render;
-        curr.render = function() {
-          this.alwaysKeepLoaded = true;
-          origRender.apply(this, arguments);
-          if (typeof this.mountContent === 'function' && !this.isContentMounted) {
-            this.mountContent();
-          }
-        };
-      }
-
-      // Proprietà alwaysKeepLoaded sempre true sul prototipo
-      try {
-        Object.defineProperty(curr, 'alwaysKeepLoaded', {
-          get: () => true,
-          set: () => {},
-          configurable: true
-        });
-      } catch(e) {}
-
-      curr = Object.getPrototypeOf(curr);
-    }
-  }
-
-  enhanceAllCanvasViews() {
-    const leaves = this.app.workspace.getLeavesOfType('canvas');
-    leaves.forEach(leaf => this.enhanceCanvasLeaf(leaf));
-  }
-
-  enhanceCanvasLeaf(leaf) {
-    if (!leaf || !leaf.view) return;
-    const canvas = leaf.view.canvas;
-    if (!canvas) return;
-
-    this.patchCanvasPrototypes(canvas);
-
-    if (canvas.nodes) {
-      canvas.nodes.forEach(node => {
-        node.alwaysKeepLoaded = true;
-        if (typeof node.mountContent === 'function' && !node.isContentMounted) {
-          node.mountContent();
-        }
-        if (typeof node.updateBreakpoint === 'function') {
-          node.updateBreakpoint(true);
-        }
-      });
-    }
-  }
-
-  // ==========================================================================
-  // METODI v1.8.2: SINCRONIZZAZIONE BIDIREZIONALE REAL-TIME MINDMAP <-> CANVAS
-  // ==========================================================================
-  findLinkedCanvasFile(mdFile) {
-    if (!mdFile) return null;
-    // 1. Stessa cartella
-    const sameDirPath = mdFile.path.replace(/\.md$/, '.canvas');
-    let f = this.app.vault.getAbstractFileByPath(sameDirPath);
-    if (f instanceof TFile) return f;
-
-    // 2. Cartella sorella 'Mappe Concettuali'
-    const parent = mdFile.parent;
-    if (parent) {
-      const grandparent = parent.parent ? parent.parent.path : '';
-      const siblingPath = grandparent ? `${grandparent}/Mappe Concettuali/${mdFile.basename}.canvas` : `Mappe Concettuali/${mdFile.basename}.canvas`;
-      f = this.app.vault.getAbstractFileByPath(siblingPath);
-      if (f instanceof TFile) return f;
-    }
-
-    // 3. Cartella radice Mappe Concettuali
-    f = this.app.vault.getAbstractFileByPath(`Mappe Concettuali/${mdFile.basename}.canvas`);
-    if (f instanceof TFile) return f;
-
-    // 4. Scansione vault per nome file corrispondente
-    const allFiles = this.app.vault.getFiles();
-    return allFiles.find(file => file.extension === 'canvas' && file.basename === mdFile.basename) || null;
-  }
-
-  findLinkedMarkdownFile(canvasFile) {
-    if (!canvasFile) return null;
-    // 1. Stessa cartella
-    const sameDirPath = canvasFile.path.replace(/\.canvas$/, '.md');
-    let f = this.app.vault.getAbstractFileByPath(sameDirPath);
-    if (f instanceof TFile) return f;
-
-    // 2. Cartella sorella 'Approfondimenti'
-    const parent = canvasFile.parent;
-    if (parent) {
-      const grandparent = parent.parent ? parent.parent.path : '';
-      const siblingApprofondimenti = grandparent ? `${grandparent}/Approfondimenti/${canvasFile.basename}.md` : `Approfondimenti/${canvasFile.basename}.md`;
-      f = this.app.vault.getAbstractFileByPath(siblingApprofondimenti);
-      if (f instanceof TFile) return f;
-    }
-
-    // 3. Risoluzione tramite metadataCache per nome nota
-    const target = this.app.metadataCache.getFirstLinkpathDest(canvasFile.basename, canvasFile.path);
-    if (target instanceof TFile && target.extension === 'md') return target;
-
-    // 4. Scansione vault per nome file corrispondente
-    const allFiles = this.app.vault.getFiles();
-    return allFiles.find(file => file.extension === 'md' && file.basename === canvasFile.basename) || null;
-  }
-
-  debounceSync(key, fn, delay = 600) {
-    if (this._syncDebounceTimers.has(key)) {
-      clearTimeout(this._syncDebounceTimers.get(key));
-    }
-    const timer = setTimeout(() => {
-      this._syncDebounceTimers.delete(key);
-      fn().catch(err => console.error('[CDS Mindmap Sync Error]:', err));
-    }, delay);
-    this._syncDebounceTimers.set(key, timer);
-  }
-
-  async handleFileModified(file) {
-    if (this._syncLocks.has(file.path)) return;
-
-    // CASO A: File Markdown (.md) modificato
-    if (file.extension === 'md') {
-      // 1. Ricarica le viste Mindmap aperte su questa nota
-      const mmLeaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_MINDMAP);
-      for (const leaf of mmLeaves) {
-        const v = leaf.view;
-        if (v && v.file && v.file.path === file.path && !v._isInternalSaving) {
-          v.reloadFromMarkdown();
-        }
-      }
-
-      // 2. Sincronizzazione verso Canvas (se esiste il file .canvas collegato)
-      const canvasFile = this.findLinkedCanvasFile(file);
-      if (canvasFile instanceof TFile) {
-        this.debounceSync(`md_to_canvas_${file.path}`, async () => {
-          await this.syncMarkdownToCanvas(file, canvasFile);
-        }, 600);
-      }
-      return;
-    }
-
-    // CASO B: File Canvas (.canvas) modificato dall'utente
-    if (file.extension === 'canvas') {
-      const mdFile = this.findLinkedMarkdownFile(file);
-      if (mdFile instanceof TFile) {
-        this.debounceSync(`canvas_to_md_${file.path}`, async () => {
-          await this.syncCanvasToMarkdown(file, mdFile);
-        }, 600);
-      }
-    }
-  }
-
-  async syncMarkdownToCanvas(mdFile, canvasFile) {
-    if (this._syncLocks.has(canvasFile.path)) return;
-    try {
-      const mdContent = await this.app.vault.read(mdFile);
-      let existingCanvasData = null;
-      try {
-        const rawCanvas = await this.app.vault.read(canvasFile);
-        existingCanvasData = JSON.parse(rawCanvas);
-      } catch(e) {}
-
-      const root = MindmapEngine.parseMarkdown(mdContent, mdFile.basename, mdFile.path);
-      const newCanvasData = MindmapEngine.exportToObsidianCanvas(root, {
-        detailLevel: 'full',
-        viewMode: 'bilateral',
-        existingCanvasData,
-        sourceFilePath: mdFile.path
-      });
-
-      const newJsonStr = JSON.stringify(newCanvasData, null, 2);
-
-      this._syncLocks.add(canvasFile.path);
-      await this.app.vault.modify(canvasFile, newJsonStr);
-
-      // Aggiorna visibilità su viste Canvas aperte
-      const canvasLeaves = this.app.workspace.getLeavesOfType('canvas');
-      for (const leaf of canvasLeaves) {
-        if (leaf.view && leaf.view.file && leaf.view.file.path === canvasFile.path) {
-          this.enhanceCanvasLeaf(leaf);
-        }
-      }
-    } catch (err) {
-      console.error('[CDS Mindmap] Errore sync MD -> Canvas:', err);
-    } finally {
-      setTimeout(() => {
-        this._syncLocks.delete(canvasFile.path);
-      }, 800);
-    }
-  }
-
-  async syncCanvasToMarkdown(canvasFile, mdFile) {
-    if (this._syncLocks.has(mdFile.path)) return;
-    try {
-      const rawCanvas = await this.app.vault.read(canvasFile);
-      const canvasData = JSON.parse(rawCanvas);
-      if (!canvasData || !Array.isArray(canvasData.nodes)) return;
-
-      const newMarkdown = MindmapEngine.canvasToMarkdown(canvasData);
-      if (!newMarkdown || !newMarkdown.trim()) return;
-
-      this._syncLocks.add(mdFile.path);
-      await this.app.vault.modify(mdFile, newMarkdown);
-
-      // Notifica e ricarica le viste Mindmap aperte
-      const mmLeaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_MINDMAP);
-      for (const leaf of mmLeaves) {
-        const v = leaf.view;
-        if (v && v.file && v.file.path === mdFile.path) {
-          v.reloadFromMarkdown();
-        }
-      }
-    } catch (err) {
-      console.error('[CDS Mindmap] Errore sync Canvas -> MD:', err);
-    } finally {
-      setTimeout(() => {
-        this._syncLocks.delete(mdFile.path);
-      }, 800);
-    }
-  }
-
   async exportActiveNoteToCanvas(file) {
     try {
       const activeFile = file || this.app.workspace.getActiveFile();
@@ -6455,30 +5916,18 @@ module.exports = class CdsMindmapPlugin extends Plugin {
         new Notice('Nessuna nota Markdown selezionata.');
         return;
       }
-
-      const parentFolder = activeFile.parent ? activeFile.parent.path : '';
-      const canvasPath = parentFolder ? `${parentFolder}/${activeFile.basename}.canvas` : `${activeFile.basename}.canvas`;
-
-      const existing = this.app.vault.getAbstractFileByPath(canvasPath);
-      let existingCanvasData = null;
-      if (existing instanceof TFile) {
-        try {
-          const raw = await this.app.vault.read(existing);
-          existingCanvasData = JSON.parse(raw);
-        } catch(e) {}
-      }
-
       const content = await this.app.vault.read(activeFile);
       const root = MindmapEngine.parseMarkdown(content, activeFile.basename, activeFile.path);
       const canvasData = MindmapEngine.exportToObsidianCanvas(root, {
         detailLevel: 'full',
-        viewMode: 'bilateral',
-        existingCanvasData,
-        sourceFilePath: activeFile.path
+        viewMode: 'bilateral'
       });
 
+      const parentFolder = activeFile.parent ? activeFile.parent.path : '';
+      const canvasPath = parentFolder ? `${parentFolder}/${activeFile.basename}.canvas` : `${activeFile.basename}.canvas`;
       const jsonStr = JSON.stringify(canvasData, null, 2);
 
+      const existing = this.app.vault.getAbstractFileByPath(canvasPath);
       if (existing) {
         await this.app.vault.modify(existing, jsonStr);
       } else {
@@ -6487,14 +5936,6 @@ module.exports = class CdsMindmapPlugin extends Plugin {
 
       new Notice(`🗺️ Generato Obsidian Canvas: ${canvasPath}`);
       await this.app.workspace.openLinkText(canvasPath, '', true);
-
-      setTimeout(() => {
-        const canvasLeaves = this.app.workspace.getLeavesOfType('canvas');
-        const targetLeaf = canvasLeaves.find(l => l.view && l.view.file && l.view.file.path === canvasPath) || this.app.workspace.activeLeaf;
-        if (targetLeaf) {
-          this.enhanceCanvasLeaf(targetLeaf);
-        }
-      }, 150);
     } catch(err) {
       console.error('[CDS Mindmap] Error exporting to canvas:', err);
       new Notice(`⚠️ Errore creazione Canvas: ${err.message}`);
