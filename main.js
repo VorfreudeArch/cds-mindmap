@@ -324,9 +324,14 @@ class MindmapEngine {
     }
 
     if (elements.length < 2) {
-      // Flow orizzontale non-boxato: A ──► B ──► C
+      // Flow orizzontale non-boxato: A ──► B ──► C.
+      // SENZA frecce esplicite NON estrarre elementi: blocchi ASCII con soli
+      // connettori (/ \ _ │) andrebbero frammentati in nodi spazzatura
+      // (es. "A. DINAMISMO ARMONICO B. DINAMISMO DRAMMATICO" → decine di nodi).
+      const hasArrows = /-->|<--|[►◄]|─[►>]|─[◄<]/.test(rawBlockText);
+      if (!hasArrows) return null;
       const flowParts = rawBlockText.split(/[─\-]*[►>]+[─\-]*|[─\-]*[◄<]+[─\-]*|\n/);
-      const cleaned = flowParts.map(p => p.trim().replace(/^[\[\(]|[\]\)]$/g, '')).filter(p => p && !/^[│─┼┌┐└┘├┤┬┴◄►▲▼\s]+$/.test(p));
+      const cleaned = flowParts.map(p => p.trim().replace(/^[\[\(]|[\]\)]$/g, '')).filter(p => p && !/^[│─┼┌┐└┘├┤┬┴◄►▲▼\/\\_=\s·•]+$/.test(p));
       if (cleaned.length >= 2) {
         return {
           title: title !== cleaned[0] ? title : 'Processo Sequenziale',
@@ -1387,8 +1392,15 @@ class MindmapEngine {
 
     if (!options.skipMeasure) MindmapEngine.measureNode(rootNode, detailLevel);
 
-    const cx = options.cx || 2400;
-    const cy = options.cy || 1800;
+    let cx = options.cx || 2400;
+    let cy = options.cy || 1800;
+
+    // Radice spostabile con frecce/drag (v1.9.4): se ha una posizione custom
+    // salvata, usala come centro e ancoraci i rami automatici.
+    if (rootNode.customX !== undefined && rootNode.customY !== undefined) {
+      cx = rootNode.customX + (rootNode.width / 2);
+      cy = rootNode.customY + (rootNode.height / 2);
+    }
 
     rootNode.x = cx - (rootNode.width / 2);
     rootNode.y = cy - (rootNode.height / 2);
@@ -1589,9 +1601,9 @@ class MindmapEngine {
     rightChildren.sort((a, b) => getDocOrder(a) - getDocOrder(b));
     leftChildren.sort((a, b) => getDocOrder(a) - getDocOrder(b));
 
-    // Coordinate provvisorie radice
-    rootNode.x = 2000;
-    rootNode.y = Math.max(600, Math.max(totalRightH, totalLeftH) / 2);
+    // Coordinate provvisorie radice (rispetta la posizione manuale v1.9.4)
+    rootNode.x = (rootNode.customX !== undefined) ? rootNode.customX : 2000;
+    rootNode.y = (rootNode.customY !== undefined) ? rootNode.customY : Math.max(600, Math.max(totalRightH, totalLeftH) / 2);
     rootNode.color = '#38bdf8';
     rootNode.direction = 'center';
 
@@ -1738,8 +1750,9 @@ class MindmapEngine {
     let totalH = 0;
     (rootNode.children || []).forEach(c => totalH += ((c.subtreeHeight || 0) + chapterGap));
 
-    rootNode.x = 140;
-    rootNode.y = Math.max(300, totalH / 2);
+    // Radice spostabile con frecce/drag (v1.9.4)
+    rootNode.x = (rootNode.customX !== undefined) ? rootNode.customX : 140;
+    rootNode.y = (rootNode.customY !== undefined) ? rootNode.customY : Math.max(300, totalH / 2);
     rootNode.color = '#38bdf8';
     rootNode.direction = 'right';
 
@@ -3346,6 +3359,11 @@ class MindmapCanvas {
 
     this.draggedNodeState = null;
 
+    // v1.9.4: Cronologia spostamenti per Ctrl+Z (frecce, drag col mouse, gruppi).
+    // Valida solo per la sessione corrente (non persiste su disco).
+    this.moveHistory = [];
+    this.moveHistoryLimit = 60;
+
     this.initDOM();
     this.render();
   }
@@ -3659,6 +3677,11 @@ class MindmapCanvas {
       e.stopPropagation();
       this.toggleStudyMode();
     };
+
+    // Etichetta passo spostamento tastiera + undo (v1.9.4)
+    const stepLabel = groupTools.createSpan({ cls: 'cds-mm-step-label' });
+    stepLabel.textContent = '⌨️ Passo: 8px · ⇧32px · Ctrl+Z';
+    stepLabel.title = 'Sposta il nodo selezionato con le frecce (8px, Shift = 32px). Ctrl+Z annulla l\'ultimo spostamento.';
 
     // GRUPPO 4: CANVAS & ESPORTAZIONE
     const groupCanvas = this.topDock.createDiv({ cls: 'cds-mm-dock-group' });
@@ -4157,7 +4180,8 @@ class MindmapCanvas {
           this.options.onNodeClick(node);
         }
 
-        if (ev.button === 0 && !node.isRoot) {
+        // v1.9.4: anche la radice è trascinabile col mouse (e spostabile con le frecce)
+        if (ev.button === 0) {
           this.initNodeDrag(node, nodeEl, ev);
         }
       };
@@ -4747,6 +4771,16 @@ class MindmapCanvas {
       }
     }
 
+    // Cronologia per Ctrl+Z: posizioni ORIGINALI (pre-drag) dei nodi che si muoveranno
+    const historyIds = new Set([node.id]);
+    for (const d of this.collectDescendants(node)) historyIds.add(d.node.id);
+    for (const item of multiGroup) historyIds.add(item.node.id);
+    const historySnapshot = [];
+    for (const hid of historyIds) {
+      const hn = this.renderedNodes.find(item => item.id === hid);
+      if (hn) historySnapshot.push({ id: hn.id, x: hn.x, y: hn.y });
+    }
+
     this.draggedNodeState = {
       node,
       rawNode,
@@ -4757,8 +4791,37 @@ class MindmapCanvas {
       nodeOrigY: node.y,
       hasMoved: false,
       descendants: this.collectDescendants(node),
-      multiGroup
+      multiGroup,
+      historySnapshot
     };
+  }
+
+  // Registra uno snapshot nella cronologia per Ctrl+Z (limitato a N voci).
+  pushMoveHistory(snapshot) {
+    if (!snapshot || !snapshot.length) return;
+    this.moveHistory.push(snapshot);
+    if (this.moveHistory.length > this.moveHistoryLimit) this.moveHistory.shift();
+  }
+
+  // Ctrl+Z: ripristina le posizioni dell'ultimo spostamento (frecce, drag, gruppi).
+  undoMove() {
+    const snapshot = this.moveHistory.pop();
+    if (!snapshot || !snapshot.length) {
+      new Notice('↩️ Niente da annullare');
+      return;
+    }
+    for (const item of snapshot) {
+      const n = this.renderedNodes.find(rd => rd.id === item.id);
+      const raw = this.findRawNode(item.id);
+      if (n) { n.x = item.x; n.y = item.y; }
+      if (raw) { raw.customX = item.x; raw.customY = item.y; }
+    }
+    this.updateBranchPathsRealtime();
+    this.updateGroupsRealtime();
+    this.renderEdgeControls();
+    this.saveLayoutMemory();
+    this.render();
+    new Notice('↩️ Spostamento annullato');
   }
 
   collectDescendants(node) {
@@ -4856,12 +4919,20 @@ class MindmapCanvas {
           this.renderEdgeControls();
         }
 
-        const els = document.elementsFromPoint(ev.clientX, ev.clientY);
-        const targetEl = els.find(el => el.classList && el.classList.contains('cds-mm-node') && el !== s.nodeEl);
+        // Riparentazione SOLO con modificatore (Alt/Ctrl): senza, il drag col mouse
+        // sposta liberamente il nodo senza che venga "assorbito" da quelli vicini
+        // (era la causa dello spostamento "rotto" percepito).
+        const wantReparent = (ev.altKey || ev.ctrlKey || ev.metaKey);
         document.querySelectorAll('.cds-mm-node.is-drop-target').forEach(el => el.classList.remove('is-drop-target'));
-        if (targetEl) {
-          targetEl.classList.add('is-drop-target');
-          s.hoverTargetId = targetEl.getAttribute('data-node-id');
+        if (wantReparent) {
+          const els = document.elementsFromPoint(ev.clientX, ev.clientY);
+          const targetEl = els.find(el => el.classList && el.classList.contains('cds-mm-node') && el !== s.nodeEl);
+          if (targetEl) {
+            targetEl.classList.add('is-drop-target');
+            s.hoverTargetId = targetEl.getAttribute('data-node-id');
+          } else {
+            s.hoverTargetId = null;
+          }
         } else {
           s.hoverTargetId = null;
         }
@@ -4892,7 +4963,9 @@ class MindmapCanvas {
       document.querySelectorAll('.cds-mm-node.is-drop-target').forEach(el => el.classList.remove('is-drop-target'));
 
       if (s.hasMoved) {
-        if (s.hoverTargetId && s.hoverTargetId !== s.node.id) {
+        // Riparenta SOLO se si rilascia tenendo Alt/Ctrl sul nodo di destinazione
+        const doReparent = (ev.altKey || ev.ctrlKey || ev.metaKey) && s.hoverTargetId && s.hoverTargetId !== s.node.id;
+        if (doReparent) {
           const isDescendant = s.descendants.some(d => d.node.id === s.hoverTargetId);
           if (!isDescendant) {
             const oldParent = this.findParent(s.node.id);
@@ -4906,13 +4979,16 @@ class MindmapCanvas {
               delete s.rawNode.customX;
               delete s.rawNode.customY;
 
-              new Notice(`Spostato "${s.rawNode.text.slice(0, 20)}" sotto "${newParent.text.slice(0, 20)}"`);
+              new Notice(`Riparentato "${s.rawNode.text.slice(0, 20)}" sotto "${newParent.text.slice(0, 20)}" (Alt/Ctrl + rilascio)`);
               this.render();
               this.triggerSave();
               return;
             }
           }
         }
+
+        // Registra lo spostamento nella cronologia Ctrl+Z (posizioni pre-drag)
+        this.pushMoveHistory(s.historySnapshot);
 
         s.rawNode.customX = s.node.x;
         s.rawNode.customY = s.node.y;
@@ -5320,7 +5396,8 @@ class MindmapCanvas {
       startItems,
       startX: ev.clientX,
       startY: ev.clientY,
-      hasMoved: false
+      hasMoved: false,
+      historySnapshot: startItems.map(i => ({ id: i.node.id, x: i.node.x, y: i.node.y }))
     };
 
     const onMove = (e) => {
@@ -5352,6 +5429,8 @@ class MindmapCanvas {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       if (this.draggedGroupState && this.draggedGroupState.hasMoved) {
+        // Cronologia Ctrl+Z: posizioni originali dei membri del gruppo
+        this.pushMoveHistory(this.draggedGroupState.historySnapshot);
         for (const item of this.draggedGroupState.startItems) {
           if (item.rawNode) {
             item.rawNode.customX = item.node.x;
@@ -5909,9 +5988,14 @@ class MindmapCanvas {
     } else if (e.key === 'e' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       this.centerRoot();
+    } else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+      // Undo spostamenti con frecce / drag / gruppi (sessione corrente)
+      e.preventDefault();
+      this.undoMove();
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-      // Sposta il nodo selezionato con le frecce (Shift = passo grande)
-      if (this.selectedNodeId && this.selectedNodeId !== 'root' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // Sposta il nodo selezionato con le frecce (Shift = passo grande).
+      // v1.9.4: anche la radice è spostabile con le frecce.
+      if (this.selectedNodeId && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         const step = e.shiftKey ? 32 : 8;
         const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
@@ -5926,6 +6010,23 @@ class MindmapCanvas {
   moveSelectedBy(dx, dy) {
     const ids = this.selectedNodeIds && this.selectedNodeIds.size > 1 ? Array.from(this.selectedNodeIds) : (this.selectedNodeId ? [this.selectedNodeId] : []);
     if (!ids.length) return;
+
+    // Cronologia per Ctrl+Z: snapshot delle posizioni PRIMA dello spostamento
+    // (nodi selezionati + tutti i discendenti che verranno spostati con loro).
+    const historyIds = new Set();
+    for (const id of ids) {
+      const hn = this.renderedNodes.find(item => item.id === id);
+      if (!hn) continue;
+      historyIds.add(hn.id);
+      for (const d of this.collectDescendants(hn)) historyIds.add(d.node.id);
+    }
+    const snapshot = [];
+    for (const hid of historyIds) {
+      const hn = this.renderedNodes.find(item => item.id === hid);
+      if (hn) snapshot.push({ id: hn.id, x: hn.x, y: hn.y });
+    }
+    this.pushMoveHistory(snapshot);
+
     const moved = new Set();
     const apply = (n) => {
       const raw = this.findRawNode(n.id);

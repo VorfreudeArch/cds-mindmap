@@ -1,7 +1,7 @@
 {
   "id": "cds-mindmap",
   "name": "CDS Mindmap",
-  "version": "1.9.3",
+  "version": "1.9.4",
   "minAppVersion": "1.4.0",
   "description": "Mappe concettuali widescreen e radiali, ordinamento cronologico rigoroso dei capitoli, parser per diagrammi ASCII/Semper, e Obsidian Canvas nativo con connettori multi-faccia.",
   "author": "CDS Team",
