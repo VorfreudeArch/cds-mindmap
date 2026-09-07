@@ -162,9 +162,17 @@
 
 .cds-mm-branch-path {
   fill: none;
-  stroke-width: 2.4px;
+  stroke-width: 2.8px;
   stroke-linecap: round;
-  transition: stroke 0.2s ease, stroke-width 0.2s ease;
+  stroke-linejoin: round;
+  opacity: 0.95;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease, opacity 0.2s ease;
+}
+
+.cds-mm-branch-path:hover {
+  stroke-width: 3.6px;
+  opacity: 1;
+  filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.55));
 }
 
 .cds-mm-branch-path.is-selected {
