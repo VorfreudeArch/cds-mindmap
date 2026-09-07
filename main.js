@@ -3347,6 +3347,11 @@ class MindmapCanvas {
     this.sheetFormat = 'A3';
     this.sheetOrientation = 'landscape';
 
+    // v1.9.5: Cronologia spostamenti per Ctrl+Z (frecce, drag col mouse, gruppi).
+    // Persistita su disco (fileLayouts) per sopravvivere al riavvio di Obsidian.
+    this.moveHistory = [];
+    this.moveHistoryLimit = 60;
+
     // RIPRISTINA MEMORIA LAYOUT SALVATA SU DISCO (DATA.JSON) PER QUESTO FILE
     if (this.plugin && this.plugin.settings && this.plugin.settings.fileLayouts && this.filePath) {
       const saved = this.plugin.settings.fileLayouts[this.filePath];
@@ -3354,15 +3359,15 @@ class MindmapCanvas {
         if (saved.spacingDensity) this.spacingDensity = saved.spacingDensity;
         if (saved.groups && Array.isArray(saved.groups)) this.groups = saved.groups;
         this.applySavedLayout(saved);
+        // Cronologia undo ripristinata (ultimi N snapshot; le posizioni dei nodi
+        // vengono riapplicate da undoMove via findRawNode per id deterministico)
+        if (Array.isArray(saved.moveHistory)) {
+          this.moveHistory = saved.moveHistory.slice(-this.moveHistoryLimit);
+        }
       }
     }
 
     this.draggedNodeState = null;
-
-    // v1.9.4: Cronologia spostamenti per Ctrl+Z (frecce, drag col mouse, gruppi).
-    // Valida solo per la sessione corrente (non persiste su disco).
-    this.moveHistory = [];
-    this.moveHistoryLimit = 60;
 
     this.initDOM();
     this.render();
@@ -4712,12 +4717,16 @@ class MindmapCanvas {
       });
 
       const baseName = (this.rawRootNode.text || 'Mappa_Concettuale').replace(/[/\\?%*:|"<>]/g, '_').trim();
+      // v1.9.5: esporta SEMPRE nella cartella canonica "Mappe Concettuali/" e NON
+      // accanto alla nota: l'esportazione accanto alla nota ricreava doppioni .canvas
+      // nel folder della nota (es. Approfondimenti/Cap 12 La fotografia.canvas).
+      const CANONICAL_CANVAS_FOLDER = 'Mappe Concettuali';
       let canvasPath = '';
-      if (this.filePath) {
-        const folder = this.filePath.includes('/') ? this.filePath.substring(0, this.filePath.lastIndexOf('/')) : '';
-        canvasPath = folder ? `${folder}/${baseName}.canvas` : `${baseName}.canvas`;
+      if (this.filePath && this.filePath.startsWith(CANONICAL_CANVAS_FOLDER + '/')) {
+        const folder = this.filePath.substring(0, this.filePath.lastIndexOf('/'));
+        canvasPath = `${folder}/${baseName}.canvas`;
       } else {
-        canvasPath = `Mappe Concettuali/${baseName}.canvas`;
+        canvasPath = `${CANONICAL_CANVAS_FOLDER}/${baseName}.canvas`;
       }
 
       const jsonStr = JSON.stringify(canvasData, null, 2);
@@ -5514,6 +5523,8 @@ class MindmapCanvas {
       panX: Math.round(this.panX),
       panY: Math.round(this.panY),
       zoom: Number(this.zoom.toFixed(2)),
+      // v1.9.5: cronologia undo persistita (max 40 voci per non appesantire data.json)
+      moveHistory: (this.moveHistory || []).slice(-40),
       updatedAt: Date.now()
     };
 
@@ -5525,6 +5536,8 @@ class MindmapCanvas {
   }
 
   async resetLayoutMemory() {
+    // v1.9.5: azzerando il layout va azzerata anche la cronologia undo
+    this.moveHistory = [];
     const clearWalk = (n) => {
       delete n.customX;
       delete n.customY;
