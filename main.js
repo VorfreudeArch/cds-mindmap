@@ -771,6 +771,12 @@ class MindmapEngine {
     const viewMode = options.viewMode || 'bilateral';
     const customGroups = options.groups || [];
 
+    // Densità di spaziatura (stessi valori della vista interattiva: v1.8.0)
+    const density = options.spacingDensity || 'compact';
+    let hGap = 45, vGap = 12, cGap = 16;
+    if (density === 'ultra-compact') { hGap = 35; vGap = 8; cGap = 10; }
+    else if (density === 'standard') { hGap = 65; vGap = 18; cGap = 24; }
+
     const filteredTree = MindmapEngine.filterTreeByDetail(rootNode, detailLevel);
 
     // Calcolo dimensioni reali delle schede Canvas in base al testo effettivo
@@ -816,13 +822,13 @@ class MindmapEngine {
     }
     measureCanvasNodes(filteredTree);
 
-    // Layout compatto ed ergonomico per Obsidian Canvas
+    // Layout compatto ed ergonomico per Obsidian Canvas (rispetta la densità scelta)
     const layoutOpts = {
       skipMeasure: true,
       detailLevel,
-      horizontalGap: 60,
-      verticalGap: 18,
-      chapterGap: 26
+      horizontalGap: hGap,
+      verticalGap: vGap,
+      chapterGap: cGap
     };
 
     let layout;
@@ -1145,6 +1151,57 @@ class MindmapEngine {
     return false;
   }
 
+  // Riallinea ogni sottoalbero al proprio genitore: le collisioni spostano i
+  // nodi singolarmente e possono sbilanciare un blocco figli rispetto al padre,
+  // generando rami obliqui che si incrociano. Questo passaggio sposta l'INTERO
+  // blocco discendente in verticale (quanto basta, senza creare collisioni) per
+  // riportare il centro dei figli allineato col centro del genitore.
+  static rebalanceSubtrees(renderedNodes, minGapX, minGapY) {
+    const map = new Map();
+    for (const n of renderedNodes) map.set(n.id, n);
+    const collectDesc = (node, out) => {
+      if (!node.children) return;
+      for (const c of node.children) {
+        const cm = map.get(c.id);
+        if (!cm) continue;
+        out.push(cm);
+        collectDesc(cm, out);
+      }
+    };
+    for (const parent of renderedNodes) {
+      if (parent.isRoot || !parent.children || !parent.children.length || parent.collapsed || parent.layout === 'table') continue;
+      const kids = parent.children.map((c) => map.get(c.id)).filter(Boolean);
+      if (!kids.length) continue;
+      let kidsMinY = Infinity, kidsMaxY = -Infinity;
+      for (const k of kids) { kidsMinY = Math.min(kidsMinY, k.y); kidsMaxY = Math.max(kidsMaxY, k.y + k.height); }
+      const delta = (parent.y + parent.height / 2) - (kidsMinY + kidsMaxY) / 2;
+      if (Math.abs(delta) < 1) continue;
+      const sub = [];
+      collectDesc(parent, sub);
+      if (!sub.length) continue;
+      const moving = new Set(sub.map((n) => n.id));
+      const sign = Math.sign(delta);
+      const safeShift = (amount) => {
+        for (const n of sub) {
+          const ny = n.y + sign * amount;
+          for (const b of renderedNodes) {
+            if (b === n || moving.has(b.id)) continue;
+            const ovX = Math.min(n.x + n.width + minGapX, b.x + b.width + minGapX) - Math.max(n.x, b.x);
+            const ovY = Math.min(ny + n.height + minGapY, b.y + b.height + minGapY) - Math.max(ny, b.y);
+            if (ovX > 0 && ovY > 0) return false;
+          }
+        }
+        return true;
+      };
+      let lo = 0, hi = Math.abs(delta);
+      for (let s = 0; s < 14; s++) {
+        const mid = (lo + hi) / 2;
+        if (safeShift(mid)) lo = mid; else hi = mid;
+      }
+      if (lo >= 1) for (const n of sub) n.y += sign * lo;
+    }
+  }
+
   // Rigenera i rami di collegamento dalle posizioni FINALI dei nodi (dopo la
   // risoluzione delle collisioni): i rami restano sempre agganciati ai nodi veri.
   static rebuildBranchPaths(renderedNodes, branchPaths, connectorStyle = 'curved') {
@@ -1373,6 +1430,7 @@ class MindmapEngine {
     }
 
     MindmapEngine.resolveCollisions(renderedNodes, 35, 20);
+    MindmapEngine.rebalanceSubtrees(renderedNodes, 35, 20);
     // Rigenera i rami dalle posizioni finali: dopo lo spostamento dei nodi i
     // percorsi precedenti non sarebbero più agganciati ai bordi reali.
     MindmapEngine.rebuildBranchPaths(renderedNodes, branchPaths, connectorStyle);
@@ -1594,6 +1652,8 @@ class MindmapEngine {
       n.y += shiftY;
     }
 
+    MindmapEngine.rebalanceSubtrees(renderedNodes, 20, 10);
+
     // Generazione rami di connessione
     const nodeMap = new Map();
     for (const n of renderedNodes) nodeMap.set(n.id, n);
@@ -1678,6 +1738,7 @@ class MindmapEngine {
     });
 
     MindmapEngine.resolveCollisions(renderedNodes, 45, 34);
+    MindmapEngine.rebalanceSubtrees(renderedNodes, 45, 34);
     // Rigenera i rami dalle posizioni finali (dopo la risoluzione delle collisioni).
     MindmapEngine.rebuildBranchPaths(renderedNodes, branchPaths, connectorStyle);
     return { nodes: renderedNodes, paths: branchPaths, root: rootNode };
