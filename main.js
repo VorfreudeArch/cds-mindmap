@@ -4710,26 +4710,45 @@ class MindmapCanvas {
       }
 
       const canvasData = MindmapEngine.exportToObsidianCanvas(this.rawRootNode, {
-        detailLevel: this.detailLevel,
+        // v1.9.6: il canvas esportato è SEMPRE completo ('full' con tutto il testo),
+        // non dipende dal livello di dettaglio della vista (es. 'titles' generava
+        // un canvas quasi vuoto con soli titoli).
+        detailLevel: 'full',
         viewMode: this.viewMode,
         groups: this.groups,
         spacingDensity: this.spacingDensity
       });
 
       const baseName = (this.rawRootNode.text || 'Mappa_Concettuale').replace(/[/\\?%*:|"<>]/g, '_').trim();
-      // v1.9.5: esporta SEMPRE nella cartella canonica "Mappe Concettuali/" e NON
-      // accanto alla nota: l'esportazione accanto alla nota ricreava doppioni .canvas
-      // nel folder della nota (es. Approfondimenti/Cap 12 La fotografia.canvas).
-      const CANONICAL_CANVAS_FOLDER = 'Mappe Concettuali';
+
+      // v1.9.6: individua il canvas CANONICO già esistente (per nome) ovunque nel
+      // vault — es. "03 Studio/.../Mappe Concettuali/Cap 12 La Fotografia.canvas" —
+      // e aggiorna QUELLO, invece di crearne uno nuovo in una cartella diversa
+      // (la v1.9.5 creava un duplicato vuoto in una "Mappe Concettuali" alla radice).
       let canvasPath = '';
-      if (this.filePath && this.filePath.startsWith(CANONICAL_CANVAS_FOLDER + '/')) {
-        const folder = this.filePath.substring(0, this.filePath.lastIndexOf('/'));
-        canvasPath = `${folder}/${baseName}.canvas`;
+      const allCanvas = this.app.vault.getFiles().filter(f => f.extension === 'canvas' && f.basename === baseName);
+      if (allCanvas.length > 0) {
+        const noteFolder = this.filePath ? this.filePath.substring(0, this.filePath.lastIndexOf('/')) : '';
+        const nearNote = allCanvas.filter(f => noteFolder && f.path.startsWith(noteFolder + '/'));
+        const inMappe = allCanvas.filter(f => f.path.includes('Mappe Concettuali'));
+        const chosen = nearNote[0] || inMappe[0] || allCanvas[0];
+        canvasPath = chosen.path;
       } else {
-        canvasPath = `${CANONICAL_CANVAS_FOLDER}/${baseName}.canvas`;
+        canvasPath = `Mappe Concettuali/${baseName}.canvas`;
       }
 
       const jsonStr = JSON.stringify(canvasData, null, 2);
+
+      // v1.9.6: chiudi eventuali canvas view GIÀ aperte sul file di destinazione.
+      // Obsidian non ricarica il file modificato dall'esterno e la vista vecchia
+      // faceva apparire il canvas "vuoto" (o riscriveva il file con lo stato stantio).
+      const canvasLeaves = this.app.workspace.getLeavesOfType('canvas');
+      for (const leaf of canvasLeaves) {
+        if (leaf.view && leaf.view.file && leaf.view.file.path === canvasPath) {
+          try { leaf.detach(); } catch (e) {}
+        }
+      }
+
       const existingFile = this.app.vault.getAbstractFileByPath(canvasPath);
 
       if (existingFile) {
