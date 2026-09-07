@@ -1024,11 +1024,18 @@ class MindmapEngine {
   static resolveCollisions(nodes, minGapX = 45, minGapY = 34) {
     if (!nodes || nodes.length < 2) return;
 
+    // Snapshot delle posizioni ideali (pre-spostamento): servono al passaggio
+    // di ricompattamento finale per evitare spazi vuoti e dispersioni eccessive.
+    for (const n of nodes) {
+      n._idealX = n.x;
+      n._idealY = n.y;
+    }
+
     const root = nodes.find(n => n.isRoot);
     const rootPadX = 60;
     const rootPadY = 40;
 
-    for (let iter = 0; iter < 45; iter++) {
+    for (let iter = 0; iter < 60; iter++) {
       let hadCollision = false;
 
       for (let i = 0; i < nodes.length; i++) {
@@ -1065,7 +1072,11 @@ class MindmapEngine {
             hadCollision = true;
 
             const xOverlap = Math.min(aRight, bRight) - Math.max(a.x, b.x);
-            if (xOverlap > 20) {
+            const yOverlap = Math.min(aBottom, bBottom) - Math.max(a.y, b.y);
+
+            // Separa lungo l'asse di MINIMA penetrazione: sposta meno e in modo
+            // più pulito (evita cascate di spostamenti che allargano la mappa).
+            if (yOverlap < xOverlap) {
               if (a.y <= b.y) {
                 const pushY = (aBottom + minGapY) - b.y;
                 b.y += pushY;
@@ -1092,6 +1103,78 @@ class MindmapEngine {
 
       if (!hadCollision) break;
     }
+
+    // Ricompattamento: riavvicina ogni nodo alla sua posizione ideale quanto più
+    // possibile SENZA creare nuove sovrapposizioni → niente buchi né dispersioni.
+    for (const a of nodes) {
+      if (a.isRoot) continue;
+      const dx = a.x - a._idealX;
+      const dy = a.y - a._idealY;
+      if (dx === 0 && dy === 0) continue;
+      // Ricerca binaria: lo = t non sicuro, hi = t sicuro. Convergiamo sul PIÙ
+      // PICCOLO t sicuro (il più vicino possibile alla posizione ideale).
+      let lo = 0, hi = 1;
+      for (let s = 0; s < 16; s++) {
+        const mid = (lo + hi) / 2;
+        const ax = a._idealX + dx * mid;
+        const ay = a._idealY + dy * mid;
+        if (MindmapEngine.collidesAt(nodes, a, ax, ay, minGapX, minGapY)) lo = mid;
+        else hi = mid;
+      }
+      a.x = a._idealX + dx * hi;
+      a.y = a._idealY + dy * hi;
+      if (a.customX !== undefined) a.customX = a.x;
+      if (a.customY !== undefined) a.customY = a.y;
+    }
+
+    for (const n of nodes) {
+      delete n._idealX;
+      delete n._idealY;
+    }
+  }
+
+  // Verifica se il rettangolo (x, y, self.width, self.height) collide con uno
+  // degli altri nodi (con margine minimo minGapX/minGapY).
+  static collidesAt(nodes, self, x, y, minGapX, minGapY) {
+    for (const b of nodes) {
+      if (b === self) continue;
+      const ovX = Math.min(x + self.width + minGapX, b.x + b.width + minGapX) - Math.max(x, b.x);
+      const ovY = Math.min(y + self.height + minGapY, b.y + b.height + minGapY) - Math.max(y, b.y);
+      if (ovX > 0 && ovY > 0) return true;
+    }
+    return false;
+  }
+
+  // Rigenera i rami di collegamento dalle posizioni FINALI dei nodi (dopo la
+  // risoluzione delle collisioni): i rami restano sempre agganciati ai nodi veri.
+  static rebuildBranchPaths(renderedNodes, branchPaths, connectorStyle = 'curved') {
+    const nodeMap = new Map();
+    for (const n of renderedNodes) nodeMap.set(n.id, n);
+    const root = renderedNodes.find(n => n.isRoot);
+    const out = [];
+    const connect = (pNode) => {
+      if (!pNode.children || !pNode.children.length || pNode.collapsed || pNode.layout === 'table') return;
+      for (const ch of pNode.children) {
+        if (!nodeMap.has(ch.id)) continue;
+        const isRight = (ch.x + ch.width / 2) >= (pNode.x + pNode.width / 2);
+        const startX = isRight ? pNode.x + pNode.width : pNode.x;
+        const startYPoint = pNode.y + (pNode.height / 2);
+        const targetX = isRight ? ch.x : ch.x + ch.width;
+        const targetYPoint = ch.y + (ch.height / 2);
+        out.push({
+          d: MindmapEngine.generateBranchPath(startX, startYPoint, targetX, targetYPoint, isRight, connectorStyle),
+          color: ch.color || pNode.color || '#38bdf8',
+          fromId: pNode.id,
+          toId: ch.id,
+          edgeText: ch.edgeText || ''
+        });
+        connect(ch);
+      }
+    };
+    if (root) connect(root);
+    else for (const n of renderedNodes) if (n.children && n.children.length) connect(n);
+    branchPaths.length = 0;
+    for (const p of out) branchPaths.push(p);
   }
 
   static measureNode(node, detailLevel = 'keypoints') {
@@ -1241,9 +1324,11 @@ class MindmapEngine {
       totalSubtreeH += (c.subtreeHeight || 120);
     });
 
-    const baseR = Math.max(520, Math.min(1800, (totalSubtreeH / (2 * Math.PI)) * 1.45));
-    const rx = baseR * 1.15;
-    const ry = baseR * 0.95;
+    // Raggio contenuto (ellisse più compatta e rotonda): meno dispersione
+    // orizzontale e meno spazi vuoti ai lati della mappa radiale.
+    const baseR = Math.max(430, Math.min(1400, (totalSubtreeH / (2 * Math.PI)) * 1.25));
+    const rx = baseR * 1.08;
+    const ry = baseR * 0.92;
 
     // Ordine cronologico discendente a 360°: parte dalle ore 12 (-Math.PI/2) e procede in senso orario
     let currentAngle = -Math.PI / 2;
@@ -1288,6 +1373,9 @@ class MindmapEngine {
     }
 
     MindmapEngine.resolveCollisions(renderedNodes, 35, 20);
+    // Rigenera i rami dalle posizioni finali: dopo lo spostamento dei nodi i
+    // percorsi precedenti non sarebbero più agganciati ai bordi reali.
+    MindmapEngine.rebuildBranchPaths(renderedNodes, branchPaths, connectorStyle);
     return { nodes: renderedNodes, paths: branchPaths, root: rootNode };
   }
 
@@ -1535,10 +1623,6 @@ class MindmapEngine {
     return { nodes: renderedNodes, paths: branchPaths, root: rootNode };
   }
 
-  static positionSubChildren(parent, color, direction, horizontalGap, renderedNodes, branchPaths, verticalGap = 12, connectorStyle = 'curved') {
-    // Deprecato in favore del posizionamento integrato in computeBilateralLayout
-  }
-
   static computeRightLayout(rootNode, options = {}) {
     const horizontalGap = options.horizontalGap || 75;
     const verticalGap = options.verticalGap || 22;
@@ -1594,6 +1678,8 @@ class MindmapEngine {
     });
 
     MindmapEngine.resolveCollisions(renderedNodes, 45, 34);
+    // Rigenera i rami dalle posizioni finali (dopo la risoluzione delle collisioni).
+    MindmapEngine.rebuildBranchPaths(renderedNodes, branchPaths, connectorStyle);
     return { nodes: renderedNodes, paths: branchPaths, root: rootNode };
   }
 
