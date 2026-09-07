@@ -1079,11 +1079,25 @@ class MindmapEngine {
 
             const xOverlap = Math.min(aRight, bRight) - Math.max(a.x, b.x);
             const yOverlap = Math.min(aBottom, bBottom) - Math.max(a.y, b.y);
+            const aCustom = a.customX !== undefined || a.customY !== undefined;
+            const bCustom = b.customX !== undefined || b.customY !== undefined;
 
             // Separa lungo l'asse di MINIMA penetrazione: sposta meno e in modo
             // più pulito (evita cascate di spostamenti che allargano la mappa).
-            if (yOverlap < xOverlap) {
-              if (a.y <= b.y) {
+            // In caso di collisione con un nodo spostato a mano (custom), spingi
+            // PREFERIBILMENTE il nodo automatico, così il nodo dell'utente resta
+            // dove lo ha messo.
+            const pushYaxis = yOverlap < xOverlap;
+            if (pushYaxis) {
+              if (aCustom && !bCustom) {
+                const pushY = (aBottom + minGapY) - b.y;
+                b.y += pushY;
+                if (b.customY !== undefined) b.customY += pushY;
+              } else if (bCustom && !aCustom) {
+                const pushY = (bBottom + minGapY) - a.y;
+                a.y += pushY;
+                if (a.customY !== undefined) a.customY += pushY;
+              } else if (a.y <= b.y) {
                 const pushY = (aBottom + minGapY) - b.y;
                 b.y += pushY;
                 if (b.customY !== undefined) b.customY += pushY;
@@ -1093,7 +1107,15 @@ class MindmapEngine {
                 if (a.customY !== undefined) a.customY += pushY;
               }
             } else {
-              if (a.x <= b.x) {
+              if (aCustom && !bCustom) {
+                const pushX = (aRight + minGapX) - b.x;
+                b.x += pushX;
+                if (b.customX !== undefined) b.customX += pushX;
+              } else if (bCustom && !aCustom) {
+                const pushX = (bRight + minGapX) - a.x;
+                a.x += pushX;
+                if (a.customX !== undefined) a.customX += pushX;
+              } else if (a.x <= b.x) {
                 const pushX = (aRight + minGapX) - b.x;
                 b.x += pushX;
                 if (b.customX !== undefined) b.customX += pushX;
@@ -1179,6 +1201,11 @@ class MindmapEngine {
       const sub = [];
       collectDesc(parent, sub);
       if (!sub.length) continue;
+      // Rispetta i nodi posizionati a mano (customX/customY): un sottoalbero che
+      // contiene nodi spostati dall'utente NON va riallineato automaticamente.
+      let hasCustom = kids.some((k) => k.customX !== undefined || k.customY !== undefined);
+      if (!hasCustom) hasCustom = sub.some((n) => n.customX !== undefined || n.customY !== undefined);
+      if (hasCustom) continue;
       const moving = new Set(sub.map((n) => n.id));
       const sign = Math.sign(delta);
       const safeShift = (amount) => {
@@ -1582,13 +1609,19 @@ class MindmapEngine {
         child.color = color;
         child.direction = dir;
 
-        child.x = isRight ? parent.x + parent.width + horizontalGap : parent.x - child.width - horizontalGap;
-        child.y = Math.round(curY + (child.subtreeHeight / 2) - (child.height / 2));
+        if (child.customX !== undefined && child.customY !== undefined) {
+          // Posizione impostata a mano (drag / frecce): rispettala
+          child.x = child.customX;
+          child.y = child.customY;
+        } else {
+          child.x = isRight ? parent.x + parent.width + horizontalGap : parent.x - child.width - horizontalGap;
+          child.y = Math.round(curY + (child.subtreeHeight / 2) - (child.height / 2));
 
-        if (i > 0) {
-          const prev = parent.children[i - 1];
-          const minY = prev.y + prev.height + verticalGap;
-          if (child.y < minY) child.y = minY;
+          if (i > 0) {
+            const prev = parent.children[i - 1];
+            const minY = prev.y + prev.height + verticalGap;
+            if (child.y < minY) child.y = minY;
+          }
         }
 
         renderedNodes.push(child);
@@ -1603,13 +1636,18 @@ class MindmapEngine {
       const color = ['#38bdf8', '#34d399', '#fbbf24', '#f87171', '#a78bfa', '#f472b6'][idx % 6];
       chap.color = color;
       chap.direction = 'right';
-      chap.x = rootNode.x + rootNode.width + horizontalGap;
-      chap.y = Math.round(curRightY + (chap.subtreeHeight / 2) - (chap.height / 2));
+      if (chap.customX !== undefined && chap.customY !== undefined) {
+        chap.x = chap.customX;
+        chap.y = chap.customY;
+      } else {
+        chap.x = rootNode.x + rootNode.width + horizontalGap;
+        chap.y = Math.round(curRightY + (chap.subtreeHeight / 2) - (chap.height / 2));
 
-      if (idx > 0) {
-        const prev = rightChildren[idx - 1];
-        const minY = prev.y + prev.height + chapterGap;
-        if (chap.y < minY) chap.y = minY;
+        if (idx > 0) {
+          const prev = rightChildren[idx - 1];
+          const minY = prev.y + prev.height + chapterGap;
+          if (chap.y < minY) chap.y = minY;
+        }
       }
 
       renderedNodes.push(chap);
@@ -1623,13 +1661,18 @@ class MindmapEngine {
       const color = ['#38bdf8', '#34d399', '#fbbf24', '#f87171', '#a78bfa', '#f472b6'][(idx + rightChildren.length) % 6];
       chap.color = color;
       chap.direction = 'left';
-      chap.x = rootNode.x - chap.width - horizontalGap;
-      chap.y = Math.round(curLeftY + (chap.subtreeHeight / 2) - (chap.height / 2));
+      if (chap.customX !== undefined && chap.customY !== undefined) {
+        chap.x = chap.customX;
+        chap.y = chap.customY;
+      } else {
+        chap.x = rootNode.x - chap.width - horizontalGap;
+        chap.y = Math.round(curLeftY + (chap.subtreeHeight / 2) - (chap.height / 2));
 
-      if (idx > 0) {
-        const prev = leftChildren[idx - 1];
-        const minY = prev.y + prev.height + chapterGap;
-        if (chap.y < minY) chap.y = minY;
+        if (idx > 0) {
+          const prev = leftChildren[idx - 1];
+          const minY = prev.y + prev.height + chapterGap;
+          if (chap.y < minY) chap.y = minY;
+        }
       }
 
       renderedNodes.push(chap);
@@ -5828,6 +5871,10 @@ class MindmapCanvas {
       return;
     }
 
+    // Ignora le scorciatoie mentre si digita in un campo di testo (ricerca, input…)
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+
     if (e.key === 'Escape') {
       e.preventDefault();
       this.deselectAll();
@@ -5862,7 +5909,49 @@ class MindmapCanvas {
     } else if (e.key === 'e' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       this.centerRoot();
+    } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      // Sposta il nodo selezionato con le frecce (Shift = passo grande)
+      if (this.selectedNodeId && this.selectedNodeId !== 'root' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        const step = e.shiftKey ? 32 : 8;
+        const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+        const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+        this.moveSelectedBy(dx, dy);
+      }
     }
+  }
+
+  // Sposta con le frecce il nodo selezionato (+ i suoi discendenti, o il gruppo
+  // multi-selezione) e salva le posizioni custom come per il drag col mouse.
+  moveSelectedBy(dx, dy) {
+    const ids = this.selectedNodeIds && this.selectedNodeIds.size > 1 ? Array.from(this.selectedNodeIds) : (this.selectedNodeId ? [this.selectedNodeId] : []);
+    if (!ids.length) return;
+    const moved = new Set();
+    const apply = (n) => {
+      const raw = this.findRawNode(n.id);
+      if (raw && moved.has(raw)) return;
+      n.x = Math.round(n.x + dx);
+      n.y = Math.round(n.y + dy);
+      const el = this.nodesLayer.querySelector(`[data-id="${n.id}"]`) || this.nodesLayer.querySelector(`[data-node-id="${n.id}"]`);
+      if (el) { el.style.left = `${n.x}px`; el.style.top = `${n.y}px`; }
+      if (raw) { raw.customX = n.x; raw.customY = n.y; moved.add(raw); }
+      for (const d of this.collectDescendants(n)) {
+        if (d.rawNode && moved.has(d.rawNode)) continue;
+        d.node.x = Math.round(d.node.x + dx);
+        d.node.y = Math.round(d.node.y + dy);
+        const el2 = this.nodesLayer.querySelector(`[data-id="${d.node.id}"]`) || this.nodesLayer.querySelector(`[data-node-id="${d.node.id}"]`);
+        if (el2) { el2.style.left = `${d.node.x}px`; el2.style.top = `${d.node.y}px`; }
+        if (d.rawNode) { d.rawNode.customX = d.node.x; d.rawNode.customY = d.node.y; moved.add(d.rawNode); }
+      }
+    };
+    for (const id of ids) {
+      const n = this.renderedNodes.find(item => item.id === id);
+      if (n) apply(n);
+    }
+    this.updateBranchPathsRealtime();
+    this.updateGroupsRealtime();
+    this.renderEdgeControls();
+    this.saveLayoutMemory();
   }
 
   onMouseDown(e) {
@@ -5903,8 +5992,9 @@ class MindmapCanvas {
   onWheel(e) {
     e.preventDefault();
     if (e.ctrlKey || e.metaKey) {
-      const delta = e.deltaY < 0 ? 1.1 : 0.9;
-      this.setZoom(this.zoom * delta);
+      const rect = this.viewport.getBoundingClientRect();
+      // Zoom verso il punto sotto il CURSORE (non verso l'origine della scena)
+      this.zoomAt(e.clientX - rect.left, e.clientY - rect.top, this.zoom * (e.deltaY < 0 ? 1.1 : 0.9));
     } else {
       this.panX -= e.deltaX * 0.8;
       this.panY -= e.deltaY * 0.8;
@@ -5917,24 +6007,41 @@ class MindmapCanvas {
     this.stage.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom})`;
   }
 
-  setZoom(val) {
-    this.zoom = Math.max(0.2, Math.min(3.0, val));
+  // Applica lo zoom mantenendo fisso il punto della viewport (cx, cy): il punto
+  // della scena sotto il cursore resta sotto il cursore durante lo zoom.
+  zoomAt(cx, cy, val) {
+    const z = this.zoom || 1;
+    const newZoom = Math.max(0.2, Math.min(3.0, val));
+    const sx = (cx - this.panX) / z;
+    const sy = (cy - this.panY) / z;
+    this.zoom = newZoom;
+    this.panX = cx - sx * this.zoom;
+    this.panY = cy - sy * this.zoom;
     this.updateTransform();
     this.updateMinimap();
+  }
+
+  setZoom(val) {
+    // Ancoraggio predefinito: centro della viewport
+    const vW = this.viewport.clientWidth || 1000;
+    const vH = this.viewport.clientHeight || 700;
+    this.zoomAt(vW / 2, vH / 2, val);
   }
 
   centerRoot() {
     const vW = this.viewport.clientWidth || 1000;
     const vH = this.viewport.clientHeight || 700;
-    const root = this.rawRootNode || (this.renderedNodes && this.renderedNodes.find(n => n.isRoot));
+    // Usa il nodo root RENDERIZZATO (posizioni reali del layout, non lo snapshot grezzo)
+    const root = (this.renderedNodes && this.renderedNodes.find(n => n.isRoot)) || this.rawRootNode;
     const rx = (root && typeof root.x === 'number') ? root.x : 1200;
     const ry = (root && typeof root.y === 'number') ? root.y : 600;
     const rw = (root && root.width) || 220;
     const rh = (root && root.height) || 60;
 
-    this.panX = Math.round((vW / 2) - rx - (rw / 2));
-    this.panY = Math.round((vH / 2) - ry - (rh / 2));
+    // Ordine corretto: prima lo zoom, poi il pan che DEVE moltiplicare per lo zoom
     this.zoom = 0.9;
+    this.panX = Math.round((vW / 2) - (rx + rw / 2) * this.zoom);
+    this.panY = Math.round((vH / 2) - (ry + rh / 2) * this.zoom);
     this.updateTransform();
     this.updateMinimap();
   }
