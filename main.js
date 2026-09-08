@@ -6686,13 +6686,33 @@ module.exports = class CdsMindmapPlugin extends Plugin {
       });
 
       const parentFolder = activeFile.parent ? activeFile.parent.path : '';
-      const canvasPath = parentFolder ? `${parentFolder}/${activeFile.basename}.canvas` : `${activeFile.basename}.canvas`;
+      // v1.9.7: come openInObsidianCanvas, non scrivere mai il canvas ACCANTO alla
+      // nota (creava doppioni "Cap 12 La fotografia.canvas" nella cartella della nota
+      // che poi generavano conflitti Seafile). Aggiorna il canvas canonico trovato per
+      // nome, altrimenti crea nella cartella Mappe Concettuali.
+      const baseName = (activeFile.basename || 'Mappa_Concettuale').replace(/[/\\?%*:|"<>]/g, '_').trim();
+      let canvasPath = '';
+      const allCanvas = this.app.vault.getFiles().filter(f => f.extension === 'canvas' && f.basename === baseName);
+      if (allCanvas.length > 0) {
+        const nearNote = allCanvas.filter(f => parentFolder && f.path.startsWith(parentFolder + '/'));
+        const inMappe = allCanvas.filter(f => f.path.includes('Mappe Concettuali'));
+        const chosen = nearNote[0] || inMappe[0] || allCanvas[0];
+        canvasPath = chosen.path;
+      } else {
+        canvasPath = `Mappe Concettuali/${baseName}.canvas`;
+      }
       const jsonStr = JSON.stringify(canvasData, null, 2);
 
       const existing = this.app.vault.getAbstractFileByPath(canvasPath);
       if (existing) {
         await this.app.vault.modify(existing, jsonStr);
       } else {
+        if (canvasPath.includes('/')) {
+          const pFolder = canvasPath.substring(0, canvasPath.lastIndexOf('/'));
+          if (!this.app.vault.getAbstractFileByPath(pFolder)) {
+            try { await this.app.vault.createFolder(pFolder); } catch(e) {}
+          }
+        }
         await this.app.vault.create(canvasPath, jsonStr);
       }
 
